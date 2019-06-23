@@ -8,6 +8,7 @@ use std::str::FromStr;
 mod sized_io {
     use std::io::Read;
 
+    #[derive(Debug)]
     pub enum ReadError {
         /// Tried to read arg bytes but found EOF.
         NotEnoughBytes(usize),
@@ -53,6 +54,7 @@ mod sized_io {
     }
 }
 
+#[derive(Debug)]
 pub enum TypeDescProblem {
     /// The generic "A type was expected" problem. If reading the return type
     /// for a function, use NoReturnType instead.
@@ -70,6 +72,7 @@ pub enum TypeDescProblem {
     MissingTerminator(String),
 }
 
+#[derive(Debug)]
 pub enum ClassParseError {
     /// arg is a description of the unimplemented section
     NotImplemented(String),
@@ -158,71 +161,84 @@ pub enum JavaType {
 }
 
 impl JavaType {
-    fn read_prefix(mut s: &mut impl Iterator<Item = u8>, is_func: bool)
-            -> Result<JavaType, ClassParseError> {
+    fn read_prefix(s: &[u8], is_func: bool)
+            -> Result<(JavaType, usize), ClassParseError> {
 
-        match s.next() {
-            Some(b'B') => Ok(JavaType::Byte),
-            Some(b'C') => Ok(JavaType::Char),
-            Some(b'D') => Ok(JavaType::Double),
-            Some(b'F') => Ok(JavaType::Float),
-            Some(b'I') => Ok(JavaType::Int),
-            Some(b'J') => Ok(JavaType::Long),
+        if s.len() == 0 {
+            return Err(ClassParseError::InvalidTypeDesc(
+                    TypeDescProblem::NoType, None));
+        }
+        match s[0] {
+            b'B' => Ok((JavaType::Byte, 1)),
+            b'C' => Ok((JavaType::Char, 1)),
+            b'D' => Ok((JavaType::Double, 1)),
+            b'F' => Ok((JavaType::Float, 1)),
+            b'I' => Ok((JavaType::Int, 1)),
+            b'J' => Ok((JavaType::Long, 1)),
             // take_while (on a ref) eats ALL elements of the source iterator up
             // to and including the first element that does not match the
             // predicate, if such an element exists.
-            Some(b'L') => {
+            b'L' => {
+                let mut chars_read = 1;
                 let mut ret = String::from("");
                 loop {
-                    match s.next() {
-                        Some(b';') => break,
-                        // TODO: implement checking on c
-                        Some(c) => ret.push(char::from(c)),
-                        None => return Err(
-                                ClassParseError::InvalidTypeDesc(
-                                        TypeDescProblem::MissingTerminator(ret),
-                                        None)),
+                    match s[chars_read] {
+                        b';' => {
+                            chars_read += 1;
+                            break;
+                        },
+                        c => {
+                            chars_read += 1;
+                            ret.push(char::from(c));
+                        },
                     }
                 }
-                Ok(JavaType::Class(ret))
+                // TODO: implement checking on ret for valid package and class
+                // identifiers.
+                // identifier: alpha alphanum*
+                // alpha: filter(char::is_alphabetic, Unicode)
+                // alphanum: filter(char::is_alphanum, Unicode)
+                // absolute_class_id: identifier ('/' identifier)*
+                Ok((JavaType::Class(ret), chars_read))
             },
-            Some(b'S') => Ok(JavaType::Short),
-            Some(b'Z') => Ok(JavaType::Bool),
-            Some(b'[') => JavaType::read_prefix(s, is_func).map(Box::new)
-                    .map(JavaType::Array),
-            Some(b'(') => {
+            b'S' => Ok((JavaType::Short, 1)),
+            b'Z' => Ok((JavaType::Bool, 1)),
+            b'[' => {
+                let (el_type, el_width) = JavaType::read_prefix(s, is_func)?;
+                Ok((JavaType::Array(box el_type), el_width + 1))
+            },
+            b'(' => {
                 if is_func {
-                    return Err(
-                            ClassParseError::InvalidTypeDesc(
-                                    TypeDescProblem::NestedFunctionType,
-                                    None));
+                    return Err(ClassParseError::InvalidTypeDesc(
+                            TypeDescProblem::NestedFunctionType,
+                            None));
                 }
+                // Skip over the opening parenthesis of the function type
+                // definition
+                let mut chars_read = 1;
                 let mut arg_types = vec![];
-                let mut args_iter = s.by_ref().take_while(|c| c != &b')');
-                loop {
-                    match JavaType::read_prefix(args_iter.by_ref(), true) {
-                        Err(ClassParseError::InvalidTypeDesc(
-                                TypeDescProblem::NoType, _)) => break,
-                        Err(e) => return Err(e),
-                        Ok(r#type) => arg_types.push(r#type),
-                    }
+                while s[chars_read] != b')' {
+                    let (arg_type, arg_width) = JavaType::read_prefix(
+                            &s[chars_read..], true)?;
+                    arg_types.push(arg_type);
+                    chars_read += arg_width;
                 }
-                match JavaType::read_prefix(&mut s, true) {
+                // Skip over the closing parenthesis of the function type
+                // definition
+                chars_read += 1;
+                match JavaType::read_prefix(&s[chars_read..], true) {
                     Err(ClassParseError::InvalidTypeDesc(
                             TypeDescProblem::NoType, s)) => Err(
                                     ClassParseError::InvalidTypeDesc(
                                             TypeDescProblem::NoReturnType, s)),
                     Err(e) => Err(e),
-                    Ok(r#type) => Ok(
-                            JavaType::Method(box arg_types, box r#type)),
+                    Ok((ret_type, ret_width)) => Ok((
+                            JavaType::Method(box arg_types, box ret_type),
+                            chars_read + ret_width)),
                 }
             },
-            Some(c) => Err(
-                    ClassParseError::InvalidTypeDesc(
-                            TypeDescProblem::ExpectedType(c), None)),
-            None => Err(
-                    ClassParseError::InvalidTypeDesc(
-                            TypeDescProblem::NoType, None)),
+            c => Err(ClassParseError::InvalidTypeDesc(
+                    TypeDescProblem::ExpectedType(c), None)),
         }
     }
 }
@@ -231,13 +247,12 @@ impl FromStr for JavaType {
     type Err = ClassParseError;
 
     fn from_str(s: &str) -> Result<JavaType, ClassParseError> {
-        let mut bytes = s.bytes();
-        match JavaType::read_prefix(&mut bytes, false) {
+        match JavaType::read_prefix(s.as_bytes(), false) {
             Err(ClassParseError::InvalidTypeDesc(p, None)) => Err(
                     ClassParseError::InvalidTypeDesc(p, Some(String::from(s)))),
             Err(e) => Err(e),
-            Ok(ret) => {
-                if let Some(_) = bytes.next() {
+            Ok((ret, ret_width)) => {
+                if ret_width != s.len() {
                     Err(ClassParseError::InvalidTypeDesc(
                             TypeDescProblem::OverlyLong, Some(String::from(s))))
                 } else {
@@ -727,33 +742,35 @@ pub fn read_class(src: &mut Read) -> Result<JavaClass, ClassParseError> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn typifies_byte() {
-        assert_eq!(JavaType::from("B"), JavaType::Byte);
+        assert_eq!(JavaType::from_str("B").unwrap(), JavaType::Byte);
     }
 
     #[test]
     fn typifies_char() {
-        assert_eq!(JavaType::from("C"), JavaType::Char);
+        assert_eq!(JavaType::from_str("C").unwrap(), JavaType::Char);
     }
 
     #[test]
     fn typifies_double() {
-        assert_eq!(JavaType::from("D"), JavaType::Double);
+        assert_eq!(JavaType::from_str("D").unwrap(), JavaType::Double);
     }
 
     #[test]
     fn typifies_float() {
-        assert_eq!(JavaType::from("F"), JavaType::Float);
+        assert_eq!(JavaType::from_str("F").unwrap(), JavaType::Float);
     }
 
     #[test]
     fn typifies_int() {
-        assert_eq!(JavaType::from("I"), JavaType::Int);
+        assert_eq!(JavaType::from_str("I").unwrap(), JavaType::Int);
     }
 
     #[test]
     fn typifies_long() {
-        assert_eq!(JavaType::from("J"), JavaType::Long);
+        assert_eq!(JavaType::from_str("J").unwrap(), JavaType::Long);
     }
 }
