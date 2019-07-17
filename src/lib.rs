@@ -1,56 +1,70 @@
 #![feature(box_syntax)]
 
+use nom::{
+    self,
+    combinator as comb,
+    Err,
+    IResult,
+    Needed
+};
+
 use sized_io::{read_u8, read_u16, read_u32};
 
-use std::io::Read;
+use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
 
 mod sized_io {
-    use std::io::Read;
+    use std::io::{self, Read, Write};
 
-    #[derive(Debug)]
-    pub enum ReadError {
-        /// Tried to read arg bytes but found EOF.
-        NotEnoughBytes(usize),
-    }
-
-    pub fn read_u8(src: &mut Read) -> Result<u8, ReadError> {
+    pub fn read_u8(src: &mut dyn Read) -> io::Result<u8> {
         let mut buf = [0; 1];
-        if let Err(e) = src.read_exact(&mut buf) {
-            Err(ReadError::NotEnoughBytes(1))
-        } else {
-            Ok(buf[0])
-        }
+        src.read_exact(&mut buf)?;
+        Ok(buf[0])
     }
     
-    pub fn read_u16(src: &mut Read) -> Result<u16, ReadError> {
+    pub fn read_u16(src: &mut dyn Read) -> io::Result<u16> {
         let mut buf = [0; 2];
-        if let Err(e) = src.read_exact(&mut buf) {
-            Err(ReadError::NotEnoughBytes(2))
-        } else {
-            Ok(((buf[0] as u16) << 8) + (buf[1] as u16))
-        }
+        src.read_exact(&mut buf)?;
+        Ok(((buf[0] as u16) << 8) + (buf[1] as u16))
     }
     
-    pub fn read_u32(src: &mut Read) -> Result<u32, ReadError> {
+    pub fn read_u32(src: &mut dyn Read) -> io::Result<u32> {
         let mut buf = [0; 4];
-        if let Err(e) = src.read_exact(&mut buf) {
-            Err(ReadError::NotEnoughBytes(4))
-        } else {
-            Ok(((buf[0] as u32) << 24) + ((buf[1] as u32) << 16) + ((buf[2] as u32) << 8) + (buf[3] as u32))
-        }
+        src.read_exact(&mut buf)?;
+        Ok(((buf[0] as u32) << 24) + ((buf[1] as u32) << 16) + ((buf[2] as u32) << 8) + (buf[3] as u32))
     }
 
-    pub fn read_bytes(src: &mut Read, length: usize)
-            -> Result<Vec<u8>, ReadError> {
-
-        let mut handle = src.take(length as u64);
+    pub fn read_bytes(src: &mut dyn Read, length: u64) -> io::Result<Vec<u8>> {
+        let mut handle = src.take(length);
         let mut buf = vec![];
-        if let Err(_) = handle.read_to_end(&mut buf) {
-            Err(ReadError::NotEnoughBytes(length))
+        if let Err(e) = handle.read_to_end(&mut buf) {
+            Err(Error::new(
+                e.kind(),
+                format!(
+                    "Expected {} bytes, but ran into an error instead: {}",
+                    length, e)))
         } else {
             Ok(buf)
         }
+    }
+
+    pub fn write_u8(out: &mut dyn Write, val: u8) -> io::Result<()> {
+        let vals = [val];
+        out.write_all(&vals[..])
+    }
+
+    pub fn write_u16(out: &mut dyn Write, val: u16) -> io::Result<()> {
+        let vals = [(val >> 8) as u8, val as u8];
+        out.write_all(&vals[..])
+    }
+
+    pub fn write_u32(out: &mut dyn Write, val: u32) -> io::Result<()> {
+        let vals = [(val >> 24) as u8, (val >> 16) as u8, (val >> 8) as u8, val as u8];
+        out.write_all(&vals[..])
+    }
+
+    pub fn write_bytes(out: &mut dyn Write, vals: &[u8]) -> io::Result<()> {
+        out.write_all(vals)
     }
 }
 
@@ -88,13 +102,21 @@ pub enum ClassParseError {
     /// first arg is the kind of problem with the type description, second arg
     /// is the malformed type description, if available.
     InvalidTypeDesc(TypeDescProblem, Option<String>),
-    /// A wrapper around a sized_io::ReadError.
-    ReadError(sized_io::ReadError),
+    /// A wrapper around an io::Error.
+    IoError(Error),
+    /// A wrapper
+    NomError(Err<String>),
 }
 
-impl From<sized_io::ReadError> for ClassParseError {
-    fn from(base: sized_io::ReadError) -> ClassParseError {
-        ClassParseError::ReadError(base)
+impl From<Error> for ClassParseError {
+    fn from(base: Error) -> ClassParseError {
+        ClassParseError::IoError(base)
+    }
+}
+
+impl<E: std::fmt::Debug> From<Err<E>> for ClassParseError {
+    fn from(base: Err<E>) -> ClassParseError {
+        ClassParseError::NomError(base.convert())
     }
 }
 
@@ -145,8 +167,9 @@ impl ReferenceKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JavaType {
+    Void,
     Bool,
     Char,
     Byte,
@@ -164,6 +187,7 @@ impl JavaType {
     fn read_prefix(s: &[u8], is_func: bool)
             -> Result<(JavaType, usize), ClassParseError> {
 
+        // TODO: consider reimplementing with package nom
         if s.len() == 0 {
             return Err(ClassParseError::InvalidTypeDesc(
                     TypeDescProblem::NoType, None));
@@ -237,6 +261,12 @@ impl JavaType {
                             chars_read + ret_width)),
                 }
             },
+            b'V' => if is_func {
+                Ok((JavaType::Void, 1))
+            } else {
+                Err(ClassParseError::InvalidTypeDesc(
+                        TypeDescProblem::ExpectedType(b'V'), None))
+            }
             c => Err(ClassParseError::InvalidTypeDesc(
                     TypeDescProblem::ExpectedType(c), None)),
         }
@@ -292,11 +322,16 @@ pub enum CPEntry {
     Long(u32, u32),
     /// same as above but IEEE 754 double-precision.
     Double(u32, u32),
-    /// arg is 1-based index of a Utf8 entry in the constant pool which contains
-    /// the fully-qualified name of a class.
+    /**
+     * arg is 1-based index of a Utf8 entry in the constant pool which contains
+     * the fully-qualified name of a class. If the class is an array class,
+     * such as int[] or java.lang.Thread[], the encoding is [I or
+     * [Ljava/lang/thread;. For any other fully qualified class name
+     * foo.bar.Baz, the encoding is Lfoo/bar/Baz;.
+     */
     Class(u16),
-    /// arg is 1-based index of a Utf8 entry in the constant pool which contains
-    /// the contents of the string.
+    /// arg is 1-based index of a Utf8 entry in the constant pool which
+    /// contains the contents of the string.
     String(u16),
     /**
      * first arg is 1-based index of the Class entry for the class that owns
@@ -304,8 +339,8 @@ pub enum CPEntry {
      * entry of the referenced field.
      */
     Fieldref(u16, u16),
-    /// Same as Fieldref except that first arg must not be index of an interface
-    /// and second arg must be a method.
+    /// Same as Fieldref except that first arg must not be index of an
+    /// interface and second arg must be a method.
     Methodref(u16, u16),
     /// Same as Methodref except that first arg must be index of an interface.
     InterfaceMethodref(u16, u16),
@@ -316,11 +351,14 @@ pub enum CPEntry {
      * the reference.
      */
     NameAndType(u16, u16),
-    /// first arg is reference kind, second arg is 1-based index of the
-    /// {Field,Method,InterfaceMethod}ref in the constant pool to interact with.
+    /**
+     * first arg is reference kind, second arg is 1-based index of the
+     * {Field,Method,InterfaceMethod}ref in the constant pool to interact
+     * with.
+     */
     MethodHandle(ReferenceKind, u16),
-    /// arg is 1-based index of a Utf8 entry in the constant pool which contains
-    /// the method descriptor.
+    /// arg is 1-based index of a Utf8 entry in the constant pool which
+    /// contains the method descriptor.
     MethodType(u16),
     /**
      * first arg is 0-based index into bootstrap methods array in the
@@ -330,120 +368,112 @@ pub enum CPEntry {
     InvokeDynamic(u16, u16),
 }
 
-fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
-    let bad_bytes_msg = "Expected 0x0ccccccc, 0x110ccccc 0x10cccccc, or 0x1110cccc 0x10cccccc 0x10cccccc";
-    let mut ret = String::with_capacity(bytes.len());
-    // A JVM-8 string is never shorter than the equivalent UTF-8 string
-    let mut src_iter = bytes.iter().map(|&c| c as u32);
-    while let Some(c0) = src_iter.next() {
-        match c0 {
-            0x01..=0x7F => ret.push((c0 as u8) as char),
-            0xC0..=0xDF => { // c0 starts two-byte encoding
-                let c1 = src_iter.next();
-                let c1 = match c1 { // c1 is UTF-8 continuation byte
-                    Some(0x80..=0xBF) => c1.unwrap(),
-                    Some(c1) => return Err(
-                        ClassParseError::InvalidByteSequence(
-                            String::from(bad_bytes_msg),
-                            vec![c0 as u8, c1 as u8])),
-                    None => return Err(
-                        ClassParseError::from(
-                            sized_io::ReadError::NotEnoughBytes(2))),
-                };
-                ret.push(
-                    std::char::from_u32(((c0 & 0x1F) << 6) + (c1 & 0x3F))
-                        .unwrap());
-            },
-            0xE0..=0xEF => { // c0 starts three-byte encoding
-                let c1 = src_iter.next();
-                let c1 = match c1 { // c1 is a UTF-8 continuation byte
-                    Some(0x80..=0xBF) => c1.unwrap(),
-                    Some(c1) => return Err(
-                        ClassParseError::InvalidByteSequence(
-                            String::from(bad_bytes_msg),
-                            vec![c0 as u8, c1 as u8])),
-                    None => return Err(
-                        ClassParseError::from(
-                            sized_io::ReadError::NotEnoughBytes(2))),
-                };
-                let c2 = src_iter.next();
-                let c2 = match c2 { // c2 is a UTF-8 continuation byte
-                    Some(0x80..=0xBF) => c2.unwrap(),
-                    Some(c2) => return Err(
-                        ClassParseError::InvalidByteSequence(
-                            String::from(bad_bytes_msg),
-                            vec![c0 as u8, c1 as u8, c2 as u8])),
-                    None => return Err(
-                        ClassParseError::from(
-                            sized_io::ReadError::NotEnoughBytes(3))),
-                };
-                let b = ((c0 & 0xF) << 12) + ((c1 & 0x3F) << 6) + (c2 & 0x3F);
-                match b {
-                    // code_point(c0, c1, c2) is primary surrogate
-                    0xD800..=0xDBFF => {
-                        let c3 = src_iter.next();
-                        let c3 = match c3 {
-                            Some(0xED) => c3.unwrap(),
-                            Some(c3) => return Err(
-                                ClassParseError::InvalidByteSequence(
-                                    String::from(
-                                        "Found UTF-16 primary surrogate not followed by UTF-16 secondary surrogate"),
-                                    vec![c0 as u8, c1 as u8, c2 as u8, c3 as u8])),
-                            None => return Err(
-                                ClassParseError::from(
-                                    sized_io::ReadError::NotEnoughBytes(6))),
-                        };
-                        let c4 = src_iter.next();
-                        let c4 = match c4 {
-                            // c4 is secondary surrogate encoding second byte
-                            Some(0xB0..=0xBF) => c4.unwrap(),
-                            Some(c4) => return Err(
-                                ClassParseError::InvalidByteSequence(
-                                    String::from(
-                                        "Found UTF-16 primary surrogate not followed by UTF-16 secondary surrogate"),
-                                    vec![c0 as u8, c1 as u8, c2 as u8, c3 as u8, c4 as u8])),
-                            None => return Err(
-                                ClassParseError::from(
-                                    sized_io::ReadError::NotEnoughBytes(6))),
-                        };
-                        let c5 = src_iter.next();
-                        let c5 = match c5 {
-                            Some(0x80..=0xBF) => c5.unwrap(),
-                            Some(c5) => return Err(
-                                ClassParseError::InvalidByteSequence(
-                                    String::from(
-                                        "Found UTF-16 primary surrogate not followed by UTF-16 secondary surrogate"),
-                                    vec![c0 as u8, c1 as u8, c2 as u8, c3 as u8, c4 as u8, c5 as u8])),
-                            None => return Err(
-                                ClassParseError::from(
-                                    sized_io::ReadError::NotEnoughBytes(6))),
-                        };
-                        ret.push(std::char::from_u32(0x10000 + ((c1 & 0xF) << 16) + ((c2 & 0x3F) << 10) + ((c4 & 0xF) << 6) + (c5 & 0x3F)).unwrap());
-                    },
-                    // code_point(c0, c1, c2) is secondary surrogate
-                    0xDC00..=0xDFFF => return Err(
-                        ClassParseError::InvalidByteSequence(
-                            String::from(
-                                "Found unpaired UTF-16 secondary surrogate"),
-                            vec![c0 as u8, c1 as u8, c2 as u8])),
-                    // code_point(c0, c1, c2) is valid UTF-8 three-byte code
-                    // point
-                    _ => ret.push(std::char::from_u32(b).unwrap()),
-                }
-            },
-            _ => panic!("Got UTF-8-encoded string instead of jvm8-encoded"),
-        }
-    }
-    Ok(ret)
+fn is_jvm8_single_start(c: u8) -> bool {
+    c & 0x80 == 0 && c != 0
 }
 
-fn read_utf8_cp_entry(src: &mut Read) -> Result<CPEntry, ClassParseError> {
+fn is_jvm8_continuation_byte(c: u8) -> bool {
+    c & 0xC0 == 0x80
+}
+
+fn is_jvm8_double_start(c: u8) -> bool {
+    c & 0xE0 == 0xC0
+}
+
+fn is_jvm8_triple_start(c: u8) -> bool {
+    c & 0xF0 == 0xE0
+}
+
+fn is_jvm8_surrogate_start(c: u8) -> bool {
+    c == 0xED
+}
+
+fn is_jvm8_lead_surr_second(c: u8) -> bool {
+    c & 0xF0 == 0xA0
+}
+
+fn is_jvm8_trail_surr_second(c: u8) -> bool {
+    c & 0xF0 == 0xB0
+}
+
+fn is_jvm8_single_byte(cs: &[u8]) -> bool {
+    cs.len() == 1 && is_jvm8_single_start(cs[0])
+}
+
+fn is_jvm8_double_byte(cs: &[u8]) -> bool {
+    cs.len() == 2 && is_jvm8_double_start(cs[0]) && is_jvm8_continuation_byte(cs[1])
+}
+
+fn is_jvm8_triple_byte(cs: &[u8]) -> bool {
+    cs.len() == 3 && is_jvm8_triple_start(cs[0]) && is_jvm8_continuation_byte(cs[1]) && is_jvm8_continuation_byte(cs[2]) && (!is_jvm8_surrogate_start(cs[0]) || !is_jvm8_lead_surr_second(cs[1]) && !is_jvm8_trail_surr_second(cs[1]))
+}
+
+fn is_jvm8_sextuple_byte(cs: &[u8]) -> bool {
+    cs.len() == 6 && is_jvm8_surrogate_start(cs[0]) && is_jvm8_lead_surr_second(cs[1]) && is_jvm8_continuation_byte(cs[2]) && is_jvm8_surrogate_start(cs[3]) && is_jvm8_trail_surr_second(cs[4]) && is_jvm8_continuation_byte(cs[5])
+}
+
+fn one_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
+    comb::verify(nom::bytes::complete::take(1), is_jvm8_single_byte)
+            .map(|(rem, bytes)| (rem, char::from(bytes[0])))
+}
+
+fn two_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
+    comb::verify(nom::bytes::complete::take(2), is_jvm8_double_byte)
+            .map(|(rem, bytes)| {
+                let high_bits = bytes[0] as u32 & 0x1F;
+                let low_bits = bytes[1] as u32 & 0x3F;
+                (rem, std::char::from_u32((high_bits << 6) | low_bits))
+            })
+}
+
+fn three_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
+    comb::verify(nom::bytes::complete::take(3), is_jvm8_triple_byte)
+            .map(|(rem, cs)| {
+                let high_bits = bytes[0] as u32 & 0xF;
+                let mid_bits = bytes[1] as u32 & 0x3F;
+                let low_bits = bytes[2] as u32 & 0x3F;
+                let code_point = (high_bits << 12) | (mid_bits << 6) | low_bits;
+                (rem, std::char::from_u32(code_point))
+            })
+}
+
+fn six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
+    comb::verify(nom::bytes::complete::take(6), is_jvm8_sextuple_byte)
+            .map(|(rem, bytes)| {
+                let high_high_bits = (bytes[1] as u32 & 0xF) + 0x1_0000;
+                let low_high_bits = bytes[2] as u32 & 0x3F;
+                let high_low_bits = bytes[4] as u32 & 0xF;
+                let low_low_bits = bytes[5] as u32 & 0x3F;
+                let high_bits = (high_high_bits << 6) | low_high_bits;
+                let low_bits = (high_low_bits << 6) | low_low_bits;
+                Ok((rem, (high_bits << 10) | low_bits))
+            })
+}
+
+fn convert_jvm8_to_string_nom(bytes: &[u8]) -> IResult<&[u8], String> {
+    alt!(empty | do_parse!(
+        code_point: alt!(one_byte_point | two_byte_point | three_byte_point
+                | six_byte_point) >>
+        rest: convert_jvm8_to_string_nom >>
+        (format!("{}{}", code_point, rest))
+    ))
+}
+
+fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
+    let (rem, s) = convert_jvm8_to_string_nom(bytes)?;
+    match rem {
+        &[] => Ok(s),
+        ref bytes => panic!(format!("`convert_jvm8_to_string_nom` should only return when it encounters an error or runs out of input. Returned Ok with {:?} bytes remaining: {:?}", bytes.len(), bytes)),
+    }
+}
+
+fn read_utf8_cp_entry(src: &mut dyn Read) -> Result<CPEntry, ClassParseError> {
     let length = read_u16(src)?.into();
     Ok(CPEntry::Utf8(
             convert_jvm8_to_string(&(sized_io::read_bytes(src, length)?))?))
 }
 
-fn read_cp_entry(src: &mut Read) -> Result<CPEntry, ClassParseError> {
+fn read_cp_entry(src: &mut dyn Read) -> Result<CPEntry, ClassParseError> {
     match read_u8(src) {
         Ok(0x01) => Ok(read_utf8_cp_entry(src)?),
         Ok(0x03) => Ok(CPEntry::Integer(read_u32(src)?)),
@@ -467,7 +497,29 @@ fn read_cp_entry(src: &mut Read) -> Result<CPEntry, ClassParseError> {
     }
 }
 
-pub type ConstantPool = Vec<CPEntry>;
+type ConstantPool = Vec<CPEntry>;
+
+fn read_constant_pool(len: u16, src: &mut dyn Read)
+        -> Result<ConstantPool, ClassParseError> {
+
+    let mut ret = vec![];
+    for _ in 0..len {
+        ret.push(read_cp_entry(src)?);
+    }
+    Ok(ret)
+}
+
+fn get_class_name(cp: &ConstantPool, idx: u16) -> String {
+    let type_entry = match &cp[idx as usize - 1] {
+        &CPEntry::Class(idx) => &cp[idx as usize - 1],
+        entry => panic!("Expected CPEntry::Class, found {:?}", entry),
+    };
+    match type_entry {
+        &CPEntry::Type(JavaType::Class(ref s)) => s.to_string(),
+        &CPEntry::Utf8(ref s) => String::from(&s[1..s.len()-1]),
+        entry => panic!("Expected CPEntry::Type or CPEntry::Utf8, found {:?}", entry),
+    }
+}
 
 pub trait AccessFlagged {
     /// The class, field, or method is declared public: it may be accessed
@@ -495,6 +547,13 @@ pub trait AccessFlagged {
     fn is_static(&self) -> bool; // 0x0008
     /// The class, field, or method is declared final.
     fn is_final(&self) -> bool; // 0x0010
+    /**
+     * The JVM should ignore the class name in all uses of invokespecial in
+     * this class file. Beginning with 7u13, Oracle's JVM treated all class
+     * files as if this attribute were present, regardless of whether it
+     * actually is.
+     */
+    fn is_super_special(&self) -> bool; // 0x0020
     /// The method is declared synchronized. A class or field cannot be
     /// synchronized.
     fn is_synchronized(&self) -> bool; // 0x0020
@@ -509,7 +568,7 @@ pub trait AccessFlagged {
      * MyNode.setData(Object) which calls MyNode.setData(Integer) with the
      * proper casts.
      *
-     * public class Node<T> { // The compiler erases this into Node
+     * ```public class Node<T> { // The compiler erases this into Node
      *     private T data; // The compiler erases this into Object data
      *
      *     public Node(T data) { // The compiler erases this into Node(Object)
@@ -531,7 +590,7 @@ pub trait AccessFlagged {
      *     public void setData(Integer data) {
      *         super.setData(data + 1);
      *     }
-     * }
+     * }```
      *
      * MyNode.setData(Object) is generated as a delegate to
      * MyNode.setData(Integer) so that calling setData on a MyNode object with
@@ -580,6 +639,13 @@ pub trait AccessFlagged {
 pub struct Attribute {
     attribute_name_index: u16,
     attribute_info: Vec<u8>,
+}
+
+fn read_attributes(num_attributes: u16, src: &mut dyn Read)
+        -> Result<Vec<Attribute>, ClassParseError> {
+
+    // TODO: implement
+    Ok(vec![])
 }
 
 pub struct JavaField {
@@ -637,6 +703,13 @@ impl JavaField {
     }
 }
 
+fn read_fields(num_fields: u16, src: &mut dyn Read)
+        -> Result<Vec<JavaField>, ClassParseError> {
+
+    // TODO: implement
+    Ok(vec![])
+}
+
 impl AccessFlagged for JavaField {
     fn is_public(&self) -> bool {
         self.access_flags & 0x0001 != 0
@@ -660,6 +733,10 @@ impl AccessFlagged for JavaField {
 
     fn is_final(&self) -> bool {
         self.access_flags & 0x0010 != 0
+    }
+
+    fn is_super_special(&self) -> bool {
+        false
     }
 
     fn is_synchronized(&self) -> bool {
@@ -718,10 +795,79 @@ pub struct JavaMethod {
     attributes: Vec<Attribute>,
 }
 
+impl JavaMethod {
+    /// Get the name of this method.
+    pub fn name(&self, constant_pool: &ConstantPool) -> String {
+        match &constant_pool[self.name_index as usize + 1] {
+            &CPEntry::Utf8(ref s) => s.to_string(),
+            // TODO: change to log and return ""?
+            ref entry => panic!("Expected string, found {:?}", &entry),
+        }
+    }
+
+    /**
+     * Get the type of this method. If the relevant item in the constant pool
+     * is a type descriptor, convert it to a type object and return that type
+     * object. If it's already a type object, return that type object.
+     */
+    pub fn r#type(&self, constant_pool: &ConstantPool) -> JavaType {
+        match &constant_pool[self.descriptor_index as usize - 1] {
+            &CPEntry::Utf8(ref s) => match JavaType::from_str(s) {
+                Ok(t) => t,
+                Err(e) => panic!("{:?}", e),
+            },
+            &CPEntry::Type(ref t) => t.clone(),
+            // TODO: convert to log and return ""?
+            ref entry => panic!(
+                    "Expected String or JavaType, found {:?}", &entry),
+        }
+    }
+
+    /**
+     * Like `JavaMethod::r#type` except that the newly created type object
+     * replaces the string it was produced from if a conversion is made.
+     */
+    pub fn convert_type(&self, constant_pool: &mut ConstantPool) -> JavaType {
+        let r#type = self.r#type(constant_pool);
+        let entry = &mut constant_pool[self.descriptor_index as usize - 1];
+        match entry {
+            &mut CPEntry::Utf8(_) => *entry = CPEntry::Type(r#type.clone()),
+            &mut CPEntry::Type(_) => {},
+            _ => panic!("Expected String or JavaType, found {:?}", &entry),
+        }
+        r#type
+    }
+}
+
+fn read_methods(num_methods: u16, src: &mut dyn Read)
+        -> Result<Vec<JavaMethod>, ClassParseError> {
+
+    // TODO: implement
+    Ok(vec![])
+}
+
+#[derive(Copy, Clone)]
+pub struct ClassFileVersion(u16, u16);
+
+impl ClassFileVersion {
+    pub const fn new(major_version: u16, minor_version: u16)
+            -> ClassFileVersion {
+
+        ClassFileVersion(major_version, minor_version)
+    }
+
+    pub fn major_version(&self) -> u16 {
+        self.0
+    }
+
+    pub fn minor_version(&self) -> u16 {
+        self.1
+    }
+}
+
 pub struct JavaClass {
-    major_version: u16,
-    minor_version: u16,
-    constant_pool: Vec<CPEntry>,
+    version: ClassFileVersion,
+    constant_pool: ConstantPool,
     access_flags: u16,
     this_class: u16,
     super_class: u16,
@@ -731,13 +877,199 @@ pub struct JavaClass {
     attributes: Vec<Attribute>,
 }
 
-pub fn read_class(src: &mut Read) -> Result<JavaClass, ClassParseError> {
-    match read_u32(src)? {
-        0xCAFE_BABE => {},
-        n => return Err(ClassParseError::InvalidMagicNumber(n)),
-    }
+fn read_interfaces(num_interfaces: u16, src: &mut dyn Read)
+        -> Result<Vec<u16>, ClassParseError> {
+
     // TODO: implement
-    Err(ClassParseError::NotImplemented(String::from("read_class(&mut Read)")))
+    Ok(vec![])
+}
+
+impl JavaClass {
+    pub fn new(
+            version: ClassFileVersion,
+            constant_pool: ConstantPool,
+            access_flags: u16,
+            this_class: u16,
+            super_class: u16,
+            interfaces: Vec<u16>,
+            fields: Vec<JavaField>,
+            methods: Vec<JavaMethod>,
+            attributes: Vec<Attribute>)
+            -> JavaClass {
+
+        JavaClass {
+            version,
+            constant_pool,
+            access_flags,
+            this_class,
+            super_class,
+            interfaces,
+            fields,
+            methods,
+            attributes,
+        }
+    }
+
+    pub fn read(src: &mut dyn Read) -> Result<JavaClass, ClassParseError> {
+        // Class file structure:
+        // {
+        //     // Must be 0xCAFE_BABE
+        //     magic_number: u32,
+        //     minor_version: u16,
+        //     major_version: u16,
+        //     // 1+ Number of elements in the constant pool
+        //     constant_pool_length: u16,
+        //     // Indexed from 1
+        //     constant_pool: ConstantPool,
+        //     access_flags: u16,
+        //     // Index of the CPEntry::Class(..) instance for this class
+        //     this_class: u16,
+        //     super_class: u16,
+        //     num_interfaces: u16,
+        //     interfaces: [u16; num_interfaces],
+        //     num_fields: u16,
+        //     fields: [JavaField; num_fields],
+        //     num_methods: u16,
+        //     methods: [JavaMethod; num_methods],
+        //     num_attributes: u16,
+        //     attributes: [Attribute; num_attributes],
+        // }
+        match read_u32(src)? {
+            0xCAFE_BABE => {},
+            n => return Err(ClassParseError::InvalidMagicNumber(n)),
+        }
+        let minor_version = read_u16(src)?;
+        let major_version = read_u16(src)?;
+        let version = ClassFileVersion::new(major_version, minor_version);
+        let cp_size = read_u16(src)?;
+        let constant_pool = read_constant_pool(cp_size, src)?;
+        let access_flags = read_u16(src)?;
+        let this_class = read_u16(src)?;
+        let super_class = read_u16(src)?;
+        let num_interfaces = read_u16(src)?;
+        let interfaces = read_interfaces(num_interfaces, src)?;
+        let num_fields = read_u16(src)?;
+        let fields = read_fields(num_fields, src)?;
+        let num_methods = read_u16(src)?;
+        let methods = read_methods(num_methods, src)?;
+        let num_attributes = read_u16(src)?;
+        let attributes = read_attributes(num_attributes, src)?;
+        Ok(JavaClass::new(
+                version,
+                constant_pool,
+                access_flags,
+                this_class,
+                super_class,
+                interfaces,
+                fields,
+                methods,
+                attributes))
+    }
+
+    pub fn write(&self, &mut dyn Write) -> io::Result<()> {
+        // TODO: implement
+        Ok(())
+    }
+
+    pub fn get_class_file_version(&self) -> ClassFileVersion {
+        self.version
+    }
+
+    pub fn get_name(&self) -> String {
+        get_class_name(&self.constant_pool, self.this_class)
+    }
+
+    pub fn get_superclass_name(&self) -> String {
+        get_class_name(&self.constant_pool, self.super_class)
+    }
+
+    pub fn get_interface_names(&self) -> Vec<String> {
+        self.interfaces.iter()
+                .map(|&idx| get_class_name(&self.constant_pool, idx))
+                .collect()
+    }
+
+    pub fn get_fields(&self) -> &Vec<JavaField> {
+        &self.fields
+    }
+
+    pub fn get_methods(&self) -> &Vec<JavaMethod> {
+        &self.methods
+    }
+}
+
+impl AccessFlagged for JavaClass {
+    fn is_public(&self) -> bool {
+        self.access_flags & 0x0001 != 0
+    }
+
+    fn is_private(&self) -> bool {
+        self.access_flags & 0x0002 != 0
+    }
+
+    fn is_protected(&self) -> bool {
+        self.access_flags & 0x0004 != 0
+    }
+
+    fn is_static(&self) -> bool {
+        self.access_flags & 0x0008 != 0
+    }
+
+    fn is_final(&self) -> bool {
+        self.access_flags & 0x0010 != 0
+    }
+
+    fn is_super_special(&self) -> bool {
+        self.access_flags & 0x0020 != 0
+    }
+
+    fn is_synchronized(&self) -> bool {
+        false
+    }
+
+    fn is_volatile(&self) -> bool {
+        false
+    }
+
+    fn is_bridge(&self) -> bool {
+        false
+    }
+
+    fn is_transient(&self) -> bool {
+        false
+    }
+
+    fn is_varargs(&self) -> bool {
+        false
+    }
+
+    fn is_native(&self) -> bool {
+        false
+    }
+
+    fn is_interface(&self) -> bool {
+        self.access_flags & 0x0200 != 0
+    }
+
+    fn is_abstract(&self) -> bool {
+        self.access_flags & 0x0400 != 0
+    }
+
+    fn is_strict(&self) -> bool {
+        false
+    }
+
+    fn is_synthetic(&self) -> bool {
+        self.access_flags & 0x1000 != 0
+    }
+
+    fn is_annotation(&self) -> bool {
+        self.access_flags & 0x2000 != 0
+    }
+
+    fn is_enum(&self) -> bool {
+        self.access_flags & 0x4000 != 0
+    }
 }
 
 #[cfg(test)]
@@ -772,5 +1104,36 @@ mod tests {
     #[test]
     fn typifies_long() {
         assert_eq!(JavaType::from_str("J").unwrap(), JavaType::Long);
+    }
+
+    #[test]
+    fn typifies_float() {
+        assert_eq!(JavaType::from_str("F").unwrap(), JavaType::Float);
+    }
+
+    #[test]
+    fn typifies_double() {
+        assert_eq!(JavaType::from_str("D").unwrap(), JavaType::Double);
+    }
+
+    #[test]
+    fn typifies_double_array() {
+        assert_eq!(
+                JavaType::from_str("[D").unwrap(),
+                JavaType::Array(box JavaType::Double));
+    }
+
+    #[test]
+    fn typifies_class_name() {
+        assert_eq!(
+                JavaType::from_str("Ljava/lang/String;").unwrap(),
+                JavaType::Class(String::from("java/lang/String")));
+    }
+
+    #[test]
+    fn typifies_void_to_void() {
+        assert_eq!(
+                JavaType::from_str("()V").unwrap(),
+                JavaType::Method(box vec![], box JavaType::Void));
     }
 }
