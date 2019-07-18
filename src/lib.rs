@@ -3,13 +3,14 @@
 use nom::{
     self,
     combinator as comb,
+    eof,
     Err,
     IResult,
 };
 
 use sized_io::{read_u8, read_u16, read_u32};
 
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{self, Error, ErrorKind, Read, Write};
 use std::iter::FromIterator;
 use std::str::FromStr;
 
@@ -114,12 +115,12 @@ impl From<Error> for ClassParseError {
     }
 }
 
-impl <E: Into<String>> From<Err<E>> for ClassParseError {
+impl <E: std::fmt::Debug> From<Err<E>> for ClassParseError {
     fn from(base: Err<E>) -> ClassParseError {
         let ret = match base {
             Err::Incomplete(n) => Err::Incomplete(n),
-            Err::Error(e) => Err::Error(e.into()),
-            Err::Failure(e) => Err::Failure(e.into()),
+            Err::Error(e) => Err::Error(format!("{:?}", e)),
+            Err::Failure(e) => Err::Failure(format!("{:?}", e)),
         };
         ClassParseError::NomError(ret)
     }
@@ -417,39 +418,39 @@ fn is_jvm8_sextuple_byte(cs: &[u8]) -> bool {
     cs.len() == 6 && is_jvm8_surrogate_start(cs[0]) && is_jvm8_lead_surr_second(cs[1]) && is_jvm8_continuation_byte(cs[2]) && is_jvm8_surrogate_start(cs[3]) && is_jvm8_trail_surr_second(cs[4]) && is_jvm8_continuation_byte(cs[5])
 }
 
-fn parse_one_byte_point<'a>() -> impl Fn(&'a [u8]) -> IResult<&'a [u8], char> {
+fn parse_one_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
     comb::map(
         comb::verify(nom::bytes::complete::take(1usize), is_jvm8_single_byte),
-        |bytes: &'a [u8]| char::from(bytes[0]))
+        |bytes: &[u8]| char::from(bytes[0]))(bytes)
 }
 
-fn parse_two_byte_point<'a>() -> impl Fn(&'a [u8]) -> IResult<&'a [u8], char> {
+fn parse_two_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
     comb::map(
         comb::verify(nom::bytes::complete::take(2usize), is_jvm8_double_byte),
-        |bytes: &'a [u8]| {
+        |bytes: &[u8]| {
             let high_bits = bytes[0] as u32 & 0x1F;
             let low_bits = bytes[1] as u32 & 0x3F;
             std::char::from_u32((high_bits << 6) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })
+        })(bytes)
 }
 
-fn parse_three_byte_point<'a>() -> impl Fn(&'a [u8]) -> IResult<&'a [u8], char> {
+fn parse_three_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
     comb::map(
         comb::verify(nom::bytes::complete::take(3usize), is_jvm8_triple_byte),
-        |bytes: &'a [u8]| {
+        |bytes: &[u8]| {
             let high_bits = bytes[0] as u32 & 0xF;
             let mid_bits = bytes[1] as u32 & 0x3F;
             let low_bits = bytes[2] as u32 & 0x3F;
             std::char::from_u32((high_bits << 12) | (mid_bits << 6) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })
+        })(bytes)
 }
 
-fn parse_six_byte_point<'a>() -> impl Fn(&'a [u8]) -> IResult<&'a [u8], char> {
+fn parse_six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
     comb::map(
         comb::verify(nom::bytes::complete::take(6usize), is_jvm8_sextuple_byte),
-        |bytes: &'a [u8]| {
+        |bytes: &[u8]| {
             let high_high_bits = (bytes[1] as u32 & 0xF) + 0x1_0000;
             let low_high_bits = bytes[2] as u32 & 0x3F;
             let high_low_bits = bytes[4] as u32 & 0xF;
@@ -458,10 +459,10 @@ fn parse_six_byte_point<'a>() -> impl Fn(&'a [u8]) -> IResult<&'a [u8], char> {
             let low_bits = (high_low_bits << 6) | low_low_bits;
             std::char::from_u32((high_bits << 10) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })
+        })(bytes)
 }
 
-fn parse_jvm8_code_point(bytes: &[u8]) ->IResult<&[u8], char> {
+fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
     nom::branch::alt((
         parse_one_byte_point,
         parse_two_byte_point,
@@ -469,11 +470,18 @@ fn parse_jvm8_code_point(bytes: &[u8]) ->IResult<&[u8], char> {
         parse_six_byte_point))(bytes)
 }
 
+nom::named!(parse_empty, eof!());
+
 fn convert_jvm8_to_string_nom(bytes: &[u8]) -> IResult<&[u8], String> {
-    nom::multi::many_till(parse_jvm8_code_point, is_empty)(bytes)
-        .map(String::from_iter)
+    comb::map(
+        nom::multi::many_till(parse_jvm8_code_point, parse_empty),
+        |(chars, _): (Vec<char>, &[u8])| String::from_iter(chars))(bytes)
         .map_err(|e| {
-            // TODO: convert error
+            match e {
+                Err::Incomplete(n) => Err::Incomplete(n),
+                Err::Error((_, ek)) => Err::Error((bytes, ek)),
+                Err::Failure((_, ek)) => Err::Error((bytes, ek)),
+            }
         })
 }
 
