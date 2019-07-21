@@ -2,7 +2,9 @@
 
 use nom::{
     self,
+    branch,
     combinator as comb,
+    bytes::complete as bytes,
     eof,
     Err,
     IResult,
@@ -14,60 +16,10 @@ use std::io::{self, Error, ErrorKind, Read, Write};
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-mod sized_io {
-    use std::io::{self, Error, Read, Write};
+mod parsers;
 
-    pub fn read_u8(src: &mut dyn Read) -> io::Result<u8> {
-        let mut buf = [0; 1];
-        src.read_exact(&mut buf)?;
-        Ok(buf[0])
-    }
-    
-    pub fn read_u16(src: &mut dyn Read) -> io::Result<u16> {
-        let mut buf = [0; 2];
-        src.read_exact(&mut buf)?;
-        Ok(((buf[0] as u16) << 8) + (buf[1] as u16))
-    }
-    
-    pub fn read_u32(src: &mut dyn Read) -> io::Result<u32> {
-        let mut buf = [0; 4];
-        src.read_exact(&mut buf)?;
-        Ok(((buf[0] as u32) << 24) + ((buf[1] as u32) << 16) + ((buf[2] as u32) << 8) + (buf[3] as u32))
-    }
-
-    pub fn read_bytes(src: &mut dyn Read, length: u64) -> io::Result<Vec<u8>> {
-        let mut handle = src.take(length);
-        let mut buf = vec![];
-        if let Err(e) = handle.read_to_end(&mut buf) {
-            Err(Error::new(
-                e.kind(),
-                format!(
-                    "Expected {} bytes, but ran into an error instead: {}",
-                    length, e)))
-        } else {
-            Ok(buf)
-        }
-    }
-
-    pub fn write_u8(out: &mut dyn Write, val: u8) -> io::Result<()> {
-        let vals = [val];
-        out.write_all(&vals[..])
-    }
-
-    pub fn write_u16(out: &mut dyn Write, val: u16) -> io::Result<()> {
-        let vals = [(val >> 8) as u8, val as u8];
-        out.write_all(&vals[..])
-    }
-
-    pub fn write_u32(out: &mut dyn Write, val: u32) -> io::Result<()> {
-        let vals = [(val >> 24) as u8, (val >> 16) as u8, (val >> 8) as u8, val as u8];
-        out.write_all(&vals[..])
-    }
-
-    pub fn write_bytes(out: &mut dyn Write, vals: &[u8]) -> io::Result<()> {
-        out.write_all(vals)
-    }
-}
+// TODO: extract to package
+mod sized_io;
 
 #[derive(Debug)]
 pub enum TypeDescProblem {
@@ -190,92 +142,27 @@ pub enum JavaType {
 }
 
 impl JavaType {
-    fn read_prefix(s: &[u8], is_func: bool)
-            -> Result<(JavaType, usize), ClassParseError> {
+    pub fn mk_array(el_type: JavaType) -> JavaType {
+        JavaType::Array(box el_type)
+    }
 
-        // TODO: consider reimplementing with package nom
-        if s.len() == 0 {
-            return Err(ClassParseError::InvalidTypeDesc(
-                    TypeDescProblem::NoType, None));
-        }
-        match s[0] {
-            b'B' => Ok((JavaType::Byte, 1)),
-            b'C' => Ok((JavaType::Char, 1)),
-            b'D' => Ok((JavaType::Double, 1)),
-            b'F' => Ok((JavaType::Float, 1)),
-            b'I' => Ok((JavaType::Int, 1)),
-            b'J' => Ok((JavaType::Long, 1)),
-            // take_while (on a ref) eats ALL elements of the source iterator up
-            // to and including the first element that does not match the
-            // predicate, if such an element exists.
-            b'L' => {
-                let mut chars_read = 1;
-                let mut ret = String::from("");
-                loop {
-                    match s[chars_read] {
-                        b';' => {
-                            chars_read += 1;
-                            break;
-                        },
-                        c => {
-                            chars_read += 1;
-                            ret.push(char::from(c));
-                        },
-                    }
-                }
-                // TODO: implement checking on ret for valid package and class
-                // identifiers.
-                // identifier: alpha alphanum*
-                // alpha: filter(char::is_alphabetic, Unicode)
-                // alphanum: filter(char::is_alphanum, Unicode)
-                // absolute_class_id: identifier ('/' identifier)*
-                Ok((JavaType::Class(ret), chars_read))
-            },
-            b'S' => Ok((JavaType::Short, 1)),
-            b'Z' => Ok((JavaType::Bool, 1)),
-            b'[' => {
-                let (el_type, el_width) = JavaType::read_prefix(s, is_func)?;
-                Ok((JavaType::Array(box el_type), el_width + 1))
-            },
-            b'(' => {
-                if is_func {
-                    return Err(ClassParseError::InvalidTypeDesc(
-                            TypeDescProblem::NestedFunctionType,
-                            None));
-                }
-                // Skip over the opening parenthesis of the function type
-                // definition
-                let mut chars_read = 1;
-                let mut arg_types = vec![];
-                while s[chars_read] != b')' {
-                    let (arg_type, arg_width) = JavaType::read_prefix(
-                            &s[chars_read..], true)?;
-                    arg_types.push(arg_type);
-                    chars_read += arg_width;
-                }
-                // Skip over the closing parenthesis of the function type
-                // definition
-                chars_read += 1;
-                match JavaType::read_prefix(&s[chars_read..], true) {
-                    Err(ClassParseError::InvalidTypeDesc(
-                            TypeDescProblem::NoType, s)) => Err(
-                                    ClassParseError::InvalidTypeDesc(
-                                            TypeDescProblem::NoReturnType, s)),
-                    Err(e) => Err(e),
-                    Ok((ret_type, ret_width)) => Ok((
-                            JavaType::Method(box arg_types, box ret_type),
-                            chars_read + ret_width)),
-                }
-            },
-            b'V' => if is_func {
-                Ok((JavaType::Void, 1))
-            } else {
-                Err(ClassParseError::InvalidTypeDesc(
-                        TypeDescProblem::ExpectedType(b'V'), None))
-            }
-            c => Err(ClassParseError::InvalidTypeDesc(
-                    TypeDescProblem::ExpectedType(c), None)),
-        }
+    fn read_prefix_nom<'a>(available_types: AvailableTypes)
+            -> impl Fn(&'a str) -> IResult<&'a str, JavaType> {
+
+        branch::alt((
+            parsers::java_type::parse_byte,
+            parsers::java_type::parse_char,
+            parsers::java_type::parse_double,
+            parsers::java_type::parse_float,
+            parsers::java_type::parse_int,
+            parsers::java_type::parse_long,
+            parsers::java_type::parse_class_name,
+            parsers::java_type::parse_short,
+            parsers::java_type::parse_bool,
+            parsers::java_type::parse_array(available_types),
+            parsers::java_type::parse_func(available_types),
+            parsers::java_type::parse_void(available_types)
+        ))
     }
 }
 
@@ -283,11 +170,11 @@ impl FromStr for JavaType {
     type Err = ClassParseError;
 
     fn from_str(s: &str) -> Result<JavaType, ClassParseError> {
-        match JavaType::read_prefix(s.as_bytes(), false) {
+        match JavaType::read_prefix_nom(parsers::java_type::AvailableTypes::NoVoid)(s) {
             Err(ClassParseError::InvalidTypeDesc(p, None)) => Err(
                     ClassParseError::InvalidTypeDesc(p, Some(String::from(s)))),
             Err(e) => Err(e),
-            Ok((ret, ret_width)) => {
+            Ok((_, ret)) => {
                 if ret_width != s.len() {
                     Err(ClassParseError::InvalidTypeDesc(
                             TypeDescProblem::OverlyLong, Some(String::from(s))))
@@ -463,19 +350,20 @@ fn parse_six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
 }
 
 fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    nom::branch::alt((
+    branch::alt((
         parse_one_byte_point,
         parse_two_byte_point,
         parse_three_byte_point,
         parse_six_byte_point))(bytes)
 }
 
-nom::named!(parse_empty, eof!());
-
 fn convert_jvm8_to_string_nom(bytes: &[u8]) -> IResult<&[u8], String> {
-    comb::map(
-        nom::multi::many_till(parse_jvm8_code_point, parse_empty),
-        |(chars, _): (Vec<char>, &[u8])| String::from_iter(chars))(bytes)
+    comb::all_consuming(
+        comb::map(
+            nom::multi::many0(parse_jvm8_code_point),
+            |(chars, _): (Vec<char>, &[u8])| String::from_iter(chars)
+        )
+    )(bytes)
         .map_err(|e| {
             match e {
                 Err::Incomplete(n) => Err::Incomplete(n),
@@ -486,11 +374,7 @@ fn convert_jvm8_to_string_nom(bytes: &[u8]) -> IResult<&[u8], String> {
 }
 
 fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
-    let (rem, s) = convert_jvm8_to_string_nom(bytes)?;
-    match rem {
-        &[] => Ok(s),
-        ref bytes => panic!(format!("`convert_jvm8_to_string_nom` should only return when it encounters an error or runs out of input. Returned Ok with {:?} bytes remaining: {:?}", bytes.len(), bytes)),
-    }
+    Ok(convert_jvm8_to_string_nom(bytes)?)
 }
 
 fn read_utf8_cp_entry(src: &mut dyn Read) -> Result<CPEntry, ClassParseError> {
