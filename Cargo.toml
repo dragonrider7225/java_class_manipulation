@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 nom = "5.0.0"
+extended_io = { git = "https://github.com/dragonrider7225/extended_io.git" }
