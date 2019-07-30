@@ -1,3 +1,4 @@
+#![feature(box_patterns)]
 #![feature(box_syntax)]
 
 use nom::{
@@ -10,16 +11,15 @@ use nom::{
     IResult,
 };
 
-use sized_io::{read_u8, read_u16, read_u32};
+use extended_io::{read_bytes, read_u8, read_u16, read_u32};
+
+use parsers::{java_type, jvm8};
 
 use std::io::{self, Error, ErrorKind, Read, Write};
 use std::iter::FromIterator;
 use std::str::FromStr;
 
 mod parsers;
-
-// TODO: extract to package
-mod sized_io;
 
 #[derive(Debug)]
 pub enum TypeDescProblem {
@@ -146,23 +146,8 @@ impl JavaType {
         JavaType::Array(box el_type)
     }
 
-    fn read_prefix_nom<'a>(available_types: AvailableTypes)
-            -> impl Fn(&'a str) -> IResult<&'a str, JavaType> {
-
-        branch::alt((
-            parsers::java_type::parse_byte,
-            parsers::java_type::parse_char,
-            parsers::java_type::parse_double,
-            parsers::java_type::parse_float,
-            parsers::java_type::parse_int,
-            parsers::java_type::parse_long,
-            parsers::java_type::parse_class_name,
-            parsers::java_type::parse_short,
-            parsers::java_type::parse_bool,
-            parsers::java_type::parse_array(available_types),
-            parsers::java_type::parse_func(available_types),
-            parsers::java_type::parse_void(available_types)
-        ))
+    pub fn mk_method(arg_types: Vec<JavaType>, ret_type: JavaType) -> JavaType {
+        JavaType::Method(box arg_types, box ret_type)
     }
 }
 
@@ -170,19 +155,7 @@ impl FromStr for JavaType {
     type Err = ClassParseError;
 
     fn from_str(s: &str) -> Result<JavaType, ClassParseError> {
-        match JavaType::read_prefix_nom(parsers::java_type::AvailableTypes::NoVoid)(s) {
-            Err(ClassParseError::InvalidTypeDesc(p, None)) => Err(
-                    ClassParseError::InvalidTypeDesc(p, Some(String::from(s)))),
-            Err(e) => Err(e),
-            Ok((_, ret)) => {
-                if ret_width != s.len() {
-                    Err(ClassParseError::InvalidTypeDesc(
-                            TypeDescProblem::OverlyLong, Some(String::from(s))))
-                } else {
-                    Ok(ret)
-                }
-            },
-        }
+        Ok(java_type::parse(s)?).map(|x| x.1)
     }
 }
 
@@ -261,126 +234,14 @@ pub enum CPEntry {
     InvokeDynamic(u16, u16),
 }
 
-fn is_jvm8_single_start(c: u8) -> bool {
-    c & 0x80 == 0 && c != 0
-}
-
-fn is_jvm8_continuation_byte(c: u8) -> bool {
-    c & 0xC0 == 0x80
-}
-
-fn is_jvm8_double_start(c: u8) -> bool {
-    c & 0xE0 == 0xC0
-}
-
-fn is_jvm8_triple_start(c: u8) -> bool {
-    c & 0xF0 == 0xE0
-}
-
-fn is_jvm8_surrogate_start(c: u8) -> bool {
-    c == 0xED
-}
-
-fn is_jvm8_lead_surr_second(c: u8) -> bool {
-    c & 0xF0 == 0xA0
-}
-
-fn is_jvm8_trail_surr_second(c: u8) -> bool {
-    c & 0xF0 == 0xB0
-}
-
-fn is_jvm8_single_byte(cs: &[u8]) -> bool {
-    cs.len() == 1 && is_jvm8_single_start(cs[0])
-}
-
-fn is_jvm8_double_byte(cs: &[u8]) -> bool {
-    cs.len() == 2 && is_jvm8_double_start(cs[0]) && is_jvm8_continuation_byte(cs[1])
-}
-
-fn is_jvm8_triple_byte(cs: &[u8]) -> bool {
-    cs.len() == 3 && is_jvm8_triple_start(cs[0]) && is_jvm8_continuation_byte(cs[1]) && is_jvm8_continuation_byte(cs[2]) && (!is_jvm8_surrogate_start(cs[0]) || !is_jvm8_lead_surr_second(cs[1]) && !is_jvm8_trail_surr_second(cs[1]))
-}
-
-fn is_jvm8_sextuple_byte(cs: &[u8]) -> bool {
-    cs.len() == 6 && is_jvm8_surrogate_start(cs[0]) && is_jvm8_lead_surr_second(cs[1]) && is_jvm8_continuation_byte(cs[2]) && is_jvm8_surrogate_start(cs[3]) && is_jvm8_trail_surr_second(cs[4]) && is_jvm8_continuation_byte(cs[5])
-}
-
-fn parse_one_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    comb::map(
-        comb::verify(nom::bytes::complete::take(1usize), is_jvm8_single_byte),
-        |bytes: &[u8]| char::from(bytes[0]))(bytes)
-}
-
-fn parse_two_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    comb::map(
-        comb::verify(nom::bytes::complete::take(2usize), is_jvm8_double_byte),
-        |bytes: &[u8]| {
-            let high_bits = bytes[0] as u32 & 0x1F;
-            let low_bits = bytes[1] as u32 & 0x3F;
-            std::char::from_u32((high_bits << 6) | low_bits)
-                .expect("Invalid character in JVM-8 string")
-        })(bytes)
-}
-
-fn parse_three_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    comb::map(
-        comb::verify(nom::bytes::complete::take(3usize), is_jvm8_triple_byte),
-        |bytes: &[u8]| {
-            let high_bits = bytes[0] as u32 & 0xF;
-            let mid_bits = bytes[1] as u32 & 0x3F;
-            let low_bits = bytes[2] as u32 & 0x3F;
-            std::char::from_u32((high_bits << 12) | (mid_bits << 6) | low_bits)
-                .expect("Invalid character in JVM-8 string")
-        })(bytes)
-}
-
-fn parse_six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    comb::map(
-        comb::verify(nom::bytes::complete::take(6usize), is_jvm8_sextuple_byte),
-        |bytes: &[u8]| {
-            let high_high_bits = (bytes[1] as u32 & 0xF) + 0x1_0000;
-            let low_high_bits = bytes[2] as u32 & 0x3F;
-            let high_low_bits = bytes[4] as u32 & 0xF;
-            let low_low_bits = bytes[5] as u32 & 0x3F;
-            let high_bits = (high_high_bits << 6) | low_high_bits;
-            let low_bits = (high_low_bits << 6) | low_low_bits;
-            std::char::from_u32((high_bits << 10) | low_bits)
-                .expect("Invalid character in JVM-8 string")
-        })(bytes)
-}
-
-fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
-    branch::alt((
-        parse_one_byte_point,
-        parse_two_byte_point,
-        parse_three_byte_point,
-        parse_six_byte_point))(bytes)
-}
-
-fn convert_jvm8_to_string_nom(bytes: &[u8]) -> IResult<&[u8], String> {
-    comb::all_consuming(
-        comb::map(
-            nom::multi::many0(parse_jvm8_code_point),
-            |(chars, _): (Vec<char>, &[u8])| String::from_iter(chars)
-        )
-    )(bytes)
-        .map_err(|e| {
-            match e {
-                Err::Incomplete(n) => Err::Incomplete(n),
-                Err::Error((_, ek)) => Err::Error((bytes, ek)),
-                Err::Failure((_, ek)) => Err::Error((bytes, ek)),
-            }
-        })
-}
-
 fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
-    Ok(convert_jvm8_to_string_nom(bytes)?)
+    Ok(jvm8::parse_jvm8(bytes)?.1)
 }
 
 fn read_utf8_cp_entry(src: &mut dyn Read) -> Result<CPEntry, ClassParseError> {
     let length = read_u16(src)?.into();
-    Ok(CPEntry::Utf8(
-            convert_jvm8_to_string(&(sized_io::read_bytes(src, length)?))?))
+    let bytes = read_bytes(src, length)?;
+    Ok(CPEntry::Utf8(convert_jvm8_to_string(&bytes)?))
 }
 
 fn read_cp_entry(src: &mut dyn Read) -> Result<CPEntry, ClassParseError> {
@@ -546,13 +407,18 @@ pub trait AccessFlagged {
     fn is_enum(&self) -> bool; // 0x4000
 }
 
-pub struct Attribute {
-    attribute_name_index: u16,
-    attribute_info: Vec<u8>,
+pub trait Attribute {
+    type Info;
+
+    fn name(&self) -> String;
+
+    fn info(&self) -> &Self::Info;
+
+    fn mut_info(&mut self) -> &mut Self::Info;
 }
 
 fn read_attributes(num_attributes: u16, src: &mut dyn Read)
-        -> Result<Vec<Attribute>, ClassParseError> {
+        -> Result<Vec<Box<dyn Attribute>>, ClassParseError> {
 
     // TODO: implement
     Ok(vec![])
@@ -610,6 +476,10 @@ impl JavaField {
             &mut CPEntry::Type(ref ret) => ret,
             entry => panic!("Expected Utf8 or Type entry, found {:?}", entry),
         }
+    }
+
+    pub fn attributes(&self) -> &Vec<Attribute> {
+        &self.attributes
     }
 }
 
@@ -746,6 +616,88 @@ impl JavaMethod {
             _ => panic!("Expected String or JavaType, found {:?}", &entry),
         }
         r#type
+    }
+
+    pub fn attributes(&self) -> &Vec<Attribute> {
+        &self.attributes
+    }
+}
+
+impl AccessFlagged for JavaMethod {
+    fn is_public(&self) -> bool {
+        self.access_flags & 0x0001 != 0
+    }
+
+    fn is_private(&self) -> bool {
+        self.access_flags & 0x0002 != 0
+    }
+
+    fn is_protected(&self) -> bool {
+        self.access_flags & 0x0004 != 0
+    }
+
+    fn is_package_protected(&self) -> bool {
+        !self.is_public() && !self.is_private() && !self.is_protected()
+    }
+
+    fn is_static(&self) -> bool {
+        self.access_flags & 0x0008 != 0
+    }
+
+    fn is_final(&self) -> bool {
+        self.access_flags & 0x0010 != 0
+    }
+
+    fn is_super_special(&self) -> bool {
+        false
+    }
+
+    fn is_synchronized(&self) -> bool {
+        self.access_flags & 0x0020 != 0
+    }
+
+    fn is_volatile(&self) -> bool {
+        false
+    }
+
+    fn is_bridge(&self) -> bool {
+        self.access_flags & 0x0040 != 0
+    }
+
+    fn is_transient(&self) -> bool {
+        false
+    }
+
+    fn is_varargs(&self) -> bool {
+        self.access_flags & 0x0080 != 0
+    }
+
+    fn is_native(&self) -> bool {
+        self.access_flags & 0x0100 != 0
+    }
+
+    fn is_interface(&self) -> bool {
+        false
+    }
+
+    fn is_abstract(&self) -> bool {
+        self.access_flags & 0x0400 != 0
+    }
+
+    fn is_strict(&self) -> bool {
+        self.access_flags & 0x0800 != 0
+    }
+
+    fn is_synthetic(&self) -> bool {
+        self.access_flags & 0x1000 != 0
+    }
+
+    fn is_annotation(&self) -> bool {
+        false
+    }
+
+    fn is_enum(&self) -> bool {
+        false
     }
 }
 
@@ -899,12 +851,16 @@ impl JavaClass {
                 .collect()
     }
 
-    pub fn get_fields(&self) -> &Vec<JavaField> {
+    pub fn fields(&self) -> &Vec<JavaField> {
         &self.fields
     }
 
-    pub fn get_methods(&self) -> &Vec<JavaMethod> {
+    pub fn methods(&self) -> &Vec<JavaMethod> {
         &self.methods
+    }
+
+    pub fn attributes(&self) -> &Vec<Attribute> {
+        &self.attributes
     }
 }
 
@@ -985,65 +941,4 @@ impl AccessFlagged for JavaClass {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn typifies_byte() {
-        assert_eq!(JavaType::from_str("B").unwrap(), JavaType::Byte);
-    }
-
-    #[test]
-    fn typifies_char() {
-        assert_eq!(JavaType::from_str("C").unwrap(), JavaType::Char);
-    }
-
-    #[test]
-    fn typifies_double() {
-        assert_eq!(JavaType::from_str("D").unwrap(), JavaType::Double);
-    }
-
-    #[test]
-    fn typifies_float() {
-        assert_eq!(JavaType::from_str("F").unwrap(), JavaType::Float);
-    }
-
-    #[test]
-    fn typifies_int() {
-        assert_eq!(JavaType::from_str("I").unwrap(), JavaType::Int);
-    }
-
-    #[test]
-    fn typifies_long() {
-        assert_eq!(JavaType::from_str("J").unwrap(), JavaType::Long);
-    }
-
-    #[test]
-    fn typifies_float() {
-        assert_eq!(JavaType::from_str("F").unwrap(), JavaType::Float);
-    }
-
-    #[test]
-    fn typifies_double() {
-        assert_eq!(JavaType::from_str("D").unwrap(), JavaType::Double);
-    }
-
-    #[test]
-    fn typifies_double_array() {
-        assert_eq!(
-                JavaType::from_str("[D").unwrap(),
-                JavaType::Array(box JavaType::Double));
-    }
-
-    #[test]
-    fn typifies_class_name() {
-        assert_eq!(
-                JavaType::from_str("Ljava/lang/String;").unwrap(),
-                JavaType::Class(String::from("java/lang/String")));
-    }
-
-    #[test]
-    fn typifies_void_to_void() {
-        assert_eq!(
-                JavaType::from_str("()V").unwrap(),
-                JavaType::Method(box vec![], box JavaType::Void));
-    }
 }
