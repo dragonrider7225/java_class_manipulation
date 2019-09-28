@@ -2,7 +2,6 @@ use nom::{
     branch,
     bytes::complete as bytes,
     combinator as comb,
-    Err,
     IResult,
     multi,
 };
@@ -114,11 +113,4 @@ pub fn parse_jvm8(bytes: &[u8]) -> IResult<&[u8], String> {
             }
         )
     )(bytes)
-        .map_err(|e| {
-            match e {
-                Err::Incomplete(n) => Err::Incomplete(n),
-                Err::Error((_, ek)) => Err::Error((bytes, ek)),
-                Err::Failure((_, ek)) => Err::Error((bytes, ek)),
-            }
-        })
 }
