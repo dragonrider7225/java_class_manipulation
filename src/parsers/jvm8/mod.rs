@@ -1,10 +1,4 @@
-use nom::{
-    branch,
-    bytes::complete as bytes,
-    combinator as comb,
-    IResult,
-    multi,
-};
+use nom::{branch, bytes::complete as bytes, combinator as comb, multi, IResult};
 
 fn is_jvm8_single_start(c: u8) -> bool {
     c & 0x80 == 0 && c != 0
@@ -43,17 +37,29 @@ fn is_jvm8_double_byte(cs: &[u8]) -> bool {
 }
 
 fn is_jvm8_triple_byte(cs: &[u8]) -> bool {
-    cs.len() == 3 && is_jvm8_triple_start(cs[0]) && is_jvm8_continuation_byte(cs[1]) && is_jvm8_continuation_byte(cs[2]) && (!is_jvm8_surrogate_start(cs[0]) || !is_jvm8_lead_surr_second(cs[1]) && !is_jvm8_trail_surr_second(cs[1]))
+    cs.len() == 3
+        && is_jvm8_triple_start(cs[0])
+        && is_jvm8_continuation_byte(cs[1])
+        && is_jvm8_continuation_byte(cs[2])
+        && (!is_jvm8_surrogate_start(cs[0])
+            || !is_jvm8_lead_surr_second(cs[1]) && !is_jvm8_trail_surr_second(cs[1]))
 }
 
 fn is_jvm8_sextuple_byte(cs: &[u8]) -> bool {
-    cs.len() == 6 && is_jvm8_surrogate_start(cs[0]) && is_jvm8_lead_surr_second(cs[1]) && is_jvm8_continuation_byte(cs[2]) && is_jvm8_surrogate_start(cs[3]) && is_jvm8_trail_surr_second(cs[4]) && is_jvm8_continuation_byte(cs[5])
+    cs.len() == 6
+        && is_jvm8_surrogate_start(cs[0])
+        && is_jvm8_lead_surr_second(cs[1])
+        && is_jvm8_continuation_byte(cs[2])
+        && is_jvm8_surrogate_start(cs[3])
+        && is_jvm8_trail_surr_second(cs[4])
+        && is_jvm8_continuation_byte(cs[5])
 }
 
 fn parse_one_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
     comb::map(
         comb::verify(bytes::take(1usize), is_jvm8_single_byte),
-        |bytes: &[u8]| char::from(bytes[0]))(bytes)
+        |bytes: &[u8]| char::from(bytes[0]),
+    )(bytes)
 }
 
 fn parse_two_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
@@ -64,7 +70,8 @@ fn parse_two_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
             let low_bits = bytes[1] as u32 & 0x3F;
             std::char::from_u32((high_bits << 6) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })(bytes)
+        },
+    )(bytes)
 }
 
 fn parse_three_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
@@ -76,7 +83,8 @@ fn parse_three_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
             let low_bits = bytes[2] as u32 & 0x3F;
             std::char::from_u32((high_bits << 12) | (mid_bits << 6) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })(bytes)
+        },
+    )(bytes)
 }
 
 fn parse_six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
@@ -91,7 +99,8 @@ fn parse_six_byte_point(bytes: &[u8]) -> IResult<&[u8], char> {
             let low_bits = (high_low_bits << 6) | low_low_bits;
             std::char::from_u32((high_bits << 10) | low_bits)
                 .expect("Invalid character in JVM-8 string")
-        })(bytes)
+        },
+    )(bytes)
 }
 
 fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
@@ -99,18 +108,17 @@ fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
         parse_one_byte_point,
         parse_two_byte_point,
         parse_three_byte_point,
-        parse_six_byte_point))(bytes)
+        parse_six_byte_point,
+    ))(bytes)
 }
 
 pub fn parse_jvm8(bytes: &[u8]) -> IResult<&[u8], String> {
-    comb::all_consuming(
-        multi::fold_many0(
-            parse_jvm8_code_point,
-            String::new(),
-            |mut acc, c| {
-                acc.push(c);
-                acc
-            }
-        )
-    )(bytes)
+    comb::all_consuming(multi::fold_many0(
+        parse_jvm8_code_point,
+        String::new(),
+        |mut acc, c| {
+            acc.push(c);
+            acc
+        },
+    ))(bytes)
 }
