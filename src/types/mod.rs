@@ -1,20 +1,12 @@
 use nom::{
-    bytes::complete as bytes,
-    branch,
-    combinator as comb,
-    multi,
-    sequence,
-    Compare,
-    InputLength,
-    InputTake,
-    IResult,
+    branch, bytes::complete as bytes, combinator as comb, error::Error, multi, sequence, Compare,
+    IResult, InputLength, InputTake, Parser,
 };
 
 use crate::{
     fragment::PackageName,
     parsers::{self, NomBaseErr, NomParse, NomParseContextFree},
-    Either,
-    JavaIdentifier,
+    Either, JavaIdentifier,
 };
 
 /// A fully-qualified Java class name.
@@ -50,10 +42,13 @@ impl QualifiedClassName {
     }
 
     pub(crate) fn from_full_str(s: &str) -> Result<QualifiedClassName, NomBaseErr<&str>> {
-        Ok(Self::class_file_pair(comb::all_consuming(sequence::pair(
-            PackageName::nom_parse_cf,
-            JavaIdentifier::nom_parse_cf,
-        ))(s)?.1))
+        Ok(Self::class_file_pair(
+            comb::all_consuming(sequence::pair(
+                PackageName::nom_parse_cf,
+                JavaIdentifier::nom_parse_cf,
+            ))(s)?
+            .1,
+        ))
     }
 
     pub(crate) fn to_internal_form(&self) -> String {
@@ -229,7 +224,7 @@ where
     type Output = Self;
 
     fn nom_parse(available_types: Self::Env, s: Self::Input) -> IResult<Self::Input, Self> {
-        let value_type = comb::map(PrimitiveValueType::nom_parse_cf, Self::ValueType);
+        let mut value_type = comb::map(PrimitiveValueType::nom_parse_cf, Self::ValueType);
         if available_types.is_void_available() {
             branch::alt((comb::value(Self::Void, bytes::tag("V")), value_type))(s)
         } else {
@@ -362,7 +357,7 @@ impl JavaType {
 
     fn nom_method<'a>(
         available_types: AvailableTypes,
-    ) -> impl Fn(&'a str) -> IResult<&'a str, Self> {
+    ) -> impl Parser<&'a str, Self, Error<&'a str>> {
         let arg_types = available_types.except_func().except_void();
         let ret_types = available_types.except_func().and_void();
         let arg_types = sequence::delimited(
@@ -434,7 +429,10 @@ impl<'i> NomParse<AvailableTypes, &'i str> for JavaType {
 
     fn nom_parse(available_types: Self::Env, s: Self::Input) -> IResult<Self::Input, Self> {
         branch::alt((
-            comb::map(|s| JavaPrimitive::nom_parse(available_types, s), JavaType::Primitive),
+            comb::map(
+                |s| JavaPrimitive::nom_parse(available_types, s),
+                JavaType::Primitive,
+            ),
             comb::map(QualifiedClassName::nom_parse_cf, JavaType::Class),
             JavaType::nom_method(available_types),
         ))(s)
@@ -453,7 +451,7 @@ impl_from_str_for_nom_parse_cf!(JavaType);
 
 // impl FromStr for JavaType {
 //     type Err = NomFlatError;
-// 
+//
 //     fn from_str(s: &str) -> Result<JavaType, Self::Err> {
 //         Ok(Self::nom_parse_full(AvailableTypes::All, s)?)
 //     }

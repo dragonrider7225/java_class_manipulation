@@ -1,6 +1,7 @@
 //! A library to parse a Java class file.
 
-#![feature(associated_type_defaults, box_patterns, box_syntax)]
+#![feature(associated_type_defaults)]
+#![feature(box_patterns, box_syntax)]
 
 use extended_io as eio;
 
@@ -25,20 +26,14 @@ pub mod fragment;
 pub mod types;
 
 use fragment::{
-    constant_pool::{ConstantPool, CPAccessError},
-    ClassFileVersion,
-    JavaAttribute,
-    JavaField,
-    JavaIdentifier,
-    JavaMethod,
-    RawAttribute,
-    RawField,
+    constant_pool::{CPAccessError, ConstantPool},
+    ClassFileVersion, JavaAttribute, JavaField, JavaIdentifier, JavaMethod, RawAttribute, RawField,
     RawMethod,
 };
 
 use parsers::{jvm8, NomFlatError};
 
-use types::{QualifiedClassName, JavaType};
+use types::{JavaType, QualifiedClassName};
 
 /// The return type of all functions in this crate that return a `Result`.
 pub type CrateResult<T> = Result<T, CrateError>;
@@ -343,7 +338,7 @@ fn write_jvm8(sink: &mut dyn Write, s: &str) -> io::Result<()> {
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         match c.into() {
-            0 => eio::write_u16(sink, 0xC080)?,
+            0u32 => eio::write_u16(sink, 0xC080)?,
             0x01..=0x7F => eio::write_u8(sink, c as u8)?,
             0x80..=0x7FF => {
                 // At least 8 bits but less than 12.
@@ -682,13 +677,19 @@ impl JavaClass {
         let this_class_idx = pool.add_class_name(self.this_class)?;
         let super_class_idx = pool.add_class_name(self.super_class)?;
         let interface_idxs = pool.add_interfaces(self.interfaces)?;
-        let raw_fields: Vec<RawField> = self.fields.into_iter()
+        let raw_fields: Vec<RawField> = self
+            .fields
+            .into_iter()
             .map(|field| field.into_raw(&mut pool))
             .collect::<Result<_, _>>()?;
-        let raw_methods: Vec<RawMethod> = self.methods.into_iter()
+        let raw_methods: Vec<RawMethod> = self
+            .methods
+            .into_iter()
             .map(|method| method.into_raw(&mut pool))
             .collect::<Result<_, _>>()?;
-        let raw_attributes: Vec<RawAttribute> = self.attributes.into_iter()
+        let raw_attributes: Vec<RawAttribute> = self
+            .attributes
+            .into_iter()
             .map(|attribute| attribute.into_raw(&mut pool))
             .collect::<Result<_, _>>()?;
 

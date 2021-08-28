@@ -8,9 +8,7 @@ use nom::{
     error::{ErrorKind, ParseError},
     multi,
     number::complete as num,
-    sequence,
-    Err,
-    IResult,
+    sequence, Err, IResult, Parser,
 };
 
 use std::{
@@ -18,19 +16,13 @@ use std::{
     collections::HashMap,
     fmt::{self, Debug, Display, Formatter},
     io::Read,
-    mem,
-    slice,
+    mem, slice,
 };
 
 use crate::{
     parsers::{NomParse, NomParseContextFree},
     types::{JavaType, PrimitiveValueType, QualifiedClassName},
-    AccessFlagged,
-    ClassParseError,
-    CrateResult,
-    Either,
-    FieldRef,
-    MethodRef,
+    AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };
 
 pub mod constant_pool;
@@ -45,9 +37,7 @@ pub use raw::{RawAttribute, RawExceptionHandler, RawField, RawMethod};
 /// equal to the size of `T`. `T` should never be a reference type or any type
 /// which contains a type which `T` should not be.
 fn as_bytes<T>(x: &T) -> &[u8] {
-    unsafe {
-        slice::from_raw_parts(x as *const T as *const _, mem::size_of::<T>())
-    }
+    unsafe { slice::from_raw_parts(x as *const T as *const _, mem::size_of::<T>()) }
 }
 
 /// An exception handler for some function body.
@@ -229,9 +219,7 @@ pub enum JavaOpCode {
     /// ... ->
     ///
     /// ..., value ->
-    Ldc {
-        index: u8,
-    },
+    Ldc { index: u8 },
     /// Like [`Ldc`], but has a 16-bit index instead of an 8-bit index.
     /// # Operand stack:
     /// ... ->
@@ -2084,9 +2072,9 @@ impl JavaOpCode {
             JavaOpCode::Invokedynamic { .. }
             | JavaOpCode::GotoW { .. }
             | JavaOpCode::JsrW { .. } => 5,
-            JavaOpCode::Lookupswitch { ref match_offsets, .. } => {
-                1 + ((position + 1) % 4) + 4 + 4 + 8 * match_offsets.len() as u16
-            }
+            JavaOpCode::Lookupswitch {
+                ref match_offsets, ..
+            } => 1 + ((position + 1) % 4) + 4 + 4 + 8 * match_offsets.len() as u16,
         }
     }
 
@@ -2123,7 +2111,9 @@ impl JavaOpCode {
             }
             JavaOpCode::Ldc2W { value } => {
                 ret.push(JavaOpCode::LDC2_W);
-                let index = value.map_left(|l| pool.add_long(l)).map_right(|d| pool.add_double(d))
+                let index = value
+                    .map_left(|l| pool.add_long(l))
+                    .map_right(|d| pool.add_double(d))
                     .unwrap()?;
                 ret.extend(&index.to_be_bytes());
             }
@@ -2414,7 +2404,10 @@ impl JavaOpCode {
                 ret.push(JavaOpCode::JSR);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Lookupswitch { default_offset, match_offsets } => {
+            JavaOpCode::Lookupswitch {
+                default_offset,
+                match_offsets,
+            } => {
                 ret.push(JavaOpCode::LOOKUPSWITCH);
                 for _ in 0..((idx + 1) % 4) {
                     ret.push(0);
@@ -2530,7 +2523,7 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
 
     fn nom_parse((idx, pool): Self::Env, s: Self::Input) -> IResult<Self::Input, Self::Output> {
         comb::flat_map(num::be_u8, |opcode| {
-            let ret: Box<dyn Fn(_) -> _> = match opcode {
+            let ret: Box<dyn Parser<_, _, _>> = match opcode {
                 opcode if opcode == JavaOpCode::NOP => box just!(Ok(JavaOpCode::Nop)),
                 opcode if opcode == JavaOpCode::ACONST_NULL => {
                     box just!(Ok(JavaOpCode::AconstNull))
@@ -2558,22 +2551,18 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                 opcode if opcode == JavaOpCode::LDC_W => {
                     box comb::map(num::be_u16, |index| Ok(JavaOpCode::LdcW { index }))
                 }
-                opcode if opcode == JavaOpCode::LDC2_W => {
-                    box comb::map(num::be_u16, |index| {
-                        let entry = pool.get(index)?;
-                        let value = match entry {
-                            &CPEntry::Double(d) => Either::Right(d),
-                            &CPEntry::Long(l) => Either::Left(l),
-                            _ => {
-                                Err(format!(
-                                    "Ldc2W must refer to a double or a long. Refers to {}",
-                                    entry.r#type(),
-                                ))?
-                            }
-                        };
-                        Ok(JavaOpCode::Ldc2W { value })
-                    })
-                }
+                opcode if opcode == JavaOpCode::LDC2_W => box comb::map(num::be_u16, |index| {
+                    let entry = pool.get(index)?;
+                    let value = match entry {
+                        &CPEntry::Double(d) => Either::Right(d),
+                        &CPEntry::Long(l) => Either::Left(l),
+                        _ => Err(format!(
+                            "Ldc2W must refer to a double or a long. Refers to {}",
+                            entry.r#type(),
+                        ))?,
+                    };
+                    Ok(JavaOpCode::Ldc2W { value })
+                }),
                 opcode if opcode == JavaOpCode::ILOAD => {
                     box comb::map(num::be_u8, |index| Ok(JavaOpCode::Iload { index }))
                 }
@@ -2775,27 +2764,24 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                 opcode if opcode == JavaOpCode::GOTO => {
                     box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Jsr { offset }))
                 }
-                opcode if opcode == JavaOpCode::LOOKUPSWITCH => {
-                    box comb::map(
-                        sequence::pair(
-                            sequence::preceded(bytes::take((idx + 1) % 4), num::be_i32),
-                            comb::flat_map(
-                                num::be_i32,
-                                |num_pairs| {
-                                    multi::many_m_n(
-                                        num_pairs as usize,
-                                        num_pairs as usize,
-                                        sequence::pair(num::be_i32, num::be_i32),
-                                    )
-                                },
-                            ),
-                        ),
-                        |(default_offset, match_offsets)| Ok(JavaOpCode::Lookupswitch {
+                opcode if opcode == JavaOpCode::LOOKUPSWITCH => box comb::map(
+                    sequence::pair(
+                        sequence::preceded(bytes::take((idx + 1) % 4), num::be_i32),
+                        comb::flat_map(num::be_i32, |num_pairs| {
+                            multi::many_m_n(
+                                num_pairs as usize,
+                                num_pairs as usize,
+                                sequence::pair(num::be_i32, num::be_i32),
+                            )
+                        }),
+                    ),
+                    |(default_offset, match_offsets)| {
+                        Ok(JavaOpCode::Lookupswitch {
                             default_offset,
                             match_offsets,
-                        }),
-                    )
-                }
+                        })
+                    },
+                ),
                 opcode if opcode == JavaOpCode::IRETURN => box just!(Ok(JavaOpCode::Ireturn)),
                 opcode if opcode == JavaOpCode::LRETURN => box just!(Ok(JavaOpCode::Lreturn)),
                 opcode if opcode == JavaOpCode::FRETURN => box just!(Ok(JavaOpCode::Freturn)),
@@ -2854,17 +2840,15 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                         },
                     )
                 }
-                opcode if opcode == JavaOpCode::NEW => {
-                    box comb::map(
-                        num::be_u16,
-                        |index| Ok(JavaOpCode::New { type_name: pool.get_class_name(index)? }),
-                    )
-                }
+                opcode if opcode == JavaOpCode::NEW => box comb::map(num::be_u16, |index| {
+                    Ok(JavaOpCode::New {
+                        type_name: pool.get_class_name(index)?,
+                    })
+                }),
                 opcode if opcode == JavaOpCode::NEWARRAY => {
-                    box comb::map(
-                        PrimitiveValueType::nom_parse_cf,
-                        |r#type| Ok(JavaOpCode::Newarray { r#type }),
-                    )
+                    box comb::map(PrimitiveValueType::nom_parse_cf, |r#type| {
+                        Ok(JavaOpCode::Newarray { r#type })
+                    })
                 }
                 opcode if opcode == JavaOpCode::ANEWARRAY => box comb::map(num::be_u16, |index| {
                     Ok(JavaOpCode::Anewarray {
@@ -2891,15 +2875,16 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                 opcode if opcode == JavaOpCode::MONITOREXIT => {
                     box just!(Ok(JavaOpCode::Monitorexit))
                 }
-                opcode if opcode == JavaOpCode::MULTIANEWARRAY => {
-                    box comb::map(sequence::pair(num::be_i16, num::be_u8), |(index, dimensions)| {
+                opcode if opcode == JavaOpCode::MULTIANEWARRAY => box comb::map(
+                    sequence::pair(num::be_i16, num::be_u8),
+                    |(index, dimensions)| {
                         if dimensions == 0 {
                             Err("`multianewarray` requires at least one dimension.")?
                         } else {
                             Ok(JavaOpCode::Multianewarray { index, dimensions })
                         }
-                    })
-                }
+                    },
+                ),
                 opcode if opcode == JavaOpCode::IFNULL => {
                     box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifnull { offset }))
                 }
@@ -2948,7 +2933,7 @@ impl JavaFunctionBody {
     fn into_raw(mut self, pool: &mut ConstantPool) -> CPAccessResult<Vec<u8>> {
         let mut ret = vec![];
         let mut entries = self.instructions.drain().collect::<Vec<_>>();
-        &mut entries[..].sort_by_key(|entry| entry.0);
+        entries[..].sort_by_key(|entry| entry.0);
         for (idx, opcode) in entries {
             ret.extend(&opcode.into_raw(idx, pool)?[..])
         }
@@ -2965,7 +2950,10 @@ impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
             match JavaOpCode::nom_parse((ret.len(), env), s.clone()) {
                 Ok((rest, opcode)) => {
                     if rest == s {
-                        return Err(Err::Error(<(Self::Input, ErrorKind) as ParseError::<Self::Input>>::from_error_kind(s, ErrorKind::Many0)));
+                        return Err(Err::Error(<_ as ParseError<_>>::from_error_kind(
+                            s,
+                            ErrorKind::Many0,
+                        )));
                     }
                     match opcode {
                         Ok(opcode) => ret.add_instruction(opcode),
@@ -3261,23 +3249,68 @@ impl<'i> NomParse<(), &'i str> for JavaIdentifier {
         }
         fn not_keyword(s: &str) -> bool {
             ![
-                "null", "true", "false", "abstract", "assert", "boolean", "break", "byte", "case",
-                "catch", "char", "class", "const", "continue", "default", "do", "double", "else",
-                "enum", "extends", "final", "finally", "float", "for", "if", "goto", "implements",
-                "import", "instanceof", "int", "interface", "long", "native", "new", "package",
-                "private", "protected", "public", "return", "short", "static", "strictfp", "super",
-                "switch", "synchronized", "this", "throw", "throws", "transient", "try", "void",
-                "volatile", "while",
-            ].contains(&s)
+                "null",
+                "true",
+                "false",
+                "abstract",
+                "assert",
+                "boolean",
+                "break",
+                "byte",
+                "case",
+                "catch",
+                "char",
+                "class",
+                "const",
+                "continue",
+                "default",
+                "do",
+                "double",
+                "else",
+                "enum",
+                "extends",
+                "final",
+                "finally",
+                "float",
+                "for",
+                "if",
+                "goto",
+                "implements",
+                "import",
+                "instanceof",
+                "int",
+                "interface",
+                "long",
+                "native",
+                "new",
+                "package",
+                "private",
+                "protected",
+                "public",
+                "return",
+                "short",
+                "static",
+                "strictfp",
+                "super",
+                "switch",
+                "synchronized",
+                "this",
+                "throw",
+                "throws",
+                "transient",
+                "try",
+                "void",
+                "volatile",
+                "while",
+            ]
+            .contains(&s)
         }
         comb::map(
             comb::verify(
-                comb::recognize(
-                    sequence::pair(
-                        comb::verify(character::anychar, |&c| is_java_alphabetic(c)),
-                        bytes::take_while(|c| is_java_alphabetic(c) || c.is_numeric()),
-                    )
-                ),
+                comb::recognize(sequence::pair(
+                    comb::verify(character::anychar, |&c| is_java_alphabetic(c)),
+                    bytes::take_while(|c| is_java_alphabetic(c) || c.is_numeric()),
+                )),
                 not_keyword,
             ),
             |s: &str| Self(s.to_string()),
@@ -3333,8 +3366,14 @@ impl<'i> NomParse<(), &'i str> for PackageName {
     fn nom_parse(_: (), s: Self::Input) -> IResult<Self::Input, Self::Output> {
         comb::map(
             branch::alt((
-                multi::many0(sequence::terminated(JavaIdentifier::nom_parse_cf, bytes::tag("/"))),
-                multi::many0(sequence::terminated(JavaIdentifier::nom_parse_cf, bytes::tag("."))),
+                multi::many0(sequence::terminated(
+                    JavaIdentifier::nom_parse_cf,
+                    bytes::tag("/"),
+                )),
+                multi::many0(sequence::terminated(
+                    JavaIdentifier::nom_parse_cf,
+                    bytes::tag("."),
+                )),
             )),
             PackageName::new,
         )(s)
@@ -3410,9 +3449,17 @@ impl JavaField {
         let access_flags = self.access_flags;
         let name_idx = pool.add_utf8(self.name)?;
         let type_idx = pool.add_type(self.r#type)?;
-        let attributes = self.attributes.into_iter().map(|attribute| attribute.into_raw(pool))
+        let attributes = self
+            .attributes
+            .into_iter()
+            .map(|attribute| attribute.into_raw(pool))
             .collect::<Result<_, _>>()?;
-        Ok(RawField { access_flags, name_idx, type_idx, attributes })
+        Ok(RawField {
+            access_flags,
+            name_idx,
+            type_idx,
+            attributes,
+        })
     }
 }
 
@@ -3558,9 +3605,17 @@ impl JavaMethod {
         let access_flags = self.access_flags;
         let name_idx = pool.add_utf8(self.name)?;
         let type_idx = pool.add_type(self.r#type)?;
-        let attributes = self.attributes.into_iter().map(|attribute| attribute.into_raw(pool))
+        let attributes = self
+            .attributes
+            .into_iter()
+            .map(|attribute| attribute.into_raw(pool))
             .collect::<Result<_, _>>()?;
-        Ok(RawMethod { access_flags, name_idx, type_idx, attributes })
+        Ok(RawMethod {
+            access_flags,
+            name_idx,
+            type_idx,
+            attributes,
+        })
     }
 }
 

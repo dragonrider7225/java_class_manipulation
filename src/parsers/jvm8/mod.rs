@@ -115,7 +115,7 @@ fn parse_jvm8_code_point(bytes: &[u8]) -> IResult<&[u8], char> {
 pub fn parse_jvm8(bytes: &[u8]) -> IResult<&[u8], String> {
     comb::all_consuming(multi::fold_many0(
         parse_jvm8_code_point,
-        String::new(),
+        String::new,
         |mut acc, c| {
             acc.push(c);
             acc

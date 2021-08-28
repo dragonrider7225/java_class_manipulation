@@ -1,12 +1,15 @@
-use std::{error::Error, fmt::{self, Debug, Display, Formatter}};
+use std::{
+    error::Error,
+    fmt::{self, Debug, Display, Formatter},
+};
 
-use nom::{combinator as comb, error::{ErrorKind, ParseError}, Err, IResult, InputLength};
+use nom::{combinator as comb, error::ParseError, Err, IResult, InputLength, Parser};
 
 // TODO: move other parsers into appropriate sub-package
 
 pub mod jvm8;
 
-pub(super) type NomBaseErr<I> = Err<(I, ErrorKind)>;
+pub(super) type NomBaseErr<I> = Err<nom::error::Error<I>>;
 
 /// An error resulting from a failed attempt to use `nom` to parse a string into a value.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -36,19 +39,19 @@ macro_rules! just {
     };
 }
 
-pub fn unwrap<E, F, I, O>(parser: F) -> impl Fn(I) -> IResult<I, O, E>
+pub fn unwrap<E, F, I, O>(parser: F) -> impl Parser<I, O, E>
 where
     E: ParseError<I>,
-    F: Fn(I) -> IResult<I, Option<O>, E>,
+    F: Parser<I, Option<O>, E>,
     I: Clone,
 {
     comb::map_opt(parser, |x| x)
 }
 
-pub fn sane_cond<E, F, I, O>(b: bool, parser: F) -> impl Fn(I) -> IResult<I, O, E>
+pub fn sane_cond<E, F, I, O>(b: bool, parser: F) -> impl Parser<I, O, E>
 where
     E: ParseError<I>,
-    F: Fn(I) -> IResult<I, O, E>,
+    F: Parser<I, O, E>,
     I: Clone,
 {
     unwrap(comb::cond(b, parser))
@@ -86,11 +89,7 @@ pub trait NomParseContextFree<Input>: NomParse<(), Input> {
 
 // This impl covers every valid `T`, since the bounds on `T` are the same as the bounds on the
 // types that can implement `NomParseContextFree`.
-impl<T, Input> NomParseContextFree<Input> for T
-where
-    T: NomParse<(), Input>,
-{
-}
+impl<T, Input> NomParseContextFree<Input> for T where T: NomParse<(), Input> {}
 
 macro_rules! impl_from_str_for_nom_parse_cf {
     ($($t:ty)*) => {$(
