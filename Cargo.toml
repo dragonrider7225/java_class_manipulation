@@ -5,7 +5,7 @@ authors = ["Kevin Moonen <dragonrider7225@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-nom = "5.1.2"
-extended_io = { git = "https://github.com/dragonrider7225/extended_io.git" }
 clap = "2.33.0"
+extended_io = { git = "https://github.com/dragonrider7225/extended_io.git" }
+nom = "^7.0.0"
 num_enum = "0.5.0"
