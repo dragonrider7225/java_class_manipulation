@@ -330,10 +330,12 @@ impl Error for ClassParseError {
     }
 }
 
+/// Convert a string encoded in the custom Java encoding, JVM-8, to UTF-8.
 fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
     Ok(jvm8::parse_jvm8(bytes)?.1)
 }
 
+/// Convert a string encoded in UTF-8 to JVM-8 and write it to `sink`.
 fn write_jvm8(sink: &mut dyn Write, s: &str) -> io::Result<()> {
     for c in s.chars() {
         match c.into() {
