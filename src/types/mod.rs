@@ -5,7 +5,7 @@ use nom::{
 
 use crate::{
     fragment::PackageName,
-    parsers::{self, NomBaseErr, NomParse, NomParseContextFree},
+    parsers::{self, impl_from_str_for_nom_parse_cf, NomBaseErr, NomParse, NomParseContextFree},
     Either, JavaIdentifier,
 };
 

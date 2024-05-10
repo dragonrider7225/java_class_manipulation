@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    parsers::{just, NomParse, NomParseContextFree},
+    parsers::{impl_from_str_for_nom_parse_cf, just, NomParse, NomParseContextFree},
     types::{JavaType, PrimitiveValueType, QualifiedClassName},
     AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };

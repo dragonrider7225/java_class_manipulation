@@ -39,7 +39,7 @@ macro_rules! just {
     };
 }
 
-/// 2018 edition: make `just` an item that can be imported in other modules in the crate
+/// Make `just` an item that can be imported in other modules in the crate
 pub(crate) use just;
 
 pub fn unwrap<E, F, I, O>(parser: F) -> impl Parser<I, O, E>
@@ -105,3 +105,5 @@ macro_rules! impl_from_str_for_nom_parse_cf {
         }
     )*}
 }
+
+pub(crate) use impl_from_str_for_nom_parse_cf;

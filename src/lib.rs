@@ -17,7 +17,6 @@ use std::{
     io::{self, Read, Write},
 };
 
-#[macro_use]
 mod parsers;
 
 /// Fragments of a Java class file.
