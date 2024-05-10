@@ -540,6 +540,7 @@ pub trait AccessFlagged {
 }
 
 /// A Java class object.
+#[derive(Clone, Debug)]
 pub struct JavaClass {
     version: ClassFileVersion,
     access_flags: u16,
@@ -548,12 +549,14 @@ pub struct JavaClass {
     attributes: Vec<JavaAttribute>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ClassTree {
     pub this_class: QualifiedClassName,
     pub super_class: QualifiedClassName,
     pub interfaces: Vec<QualifiedClassName>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ClassMembers {
     pub fields: Vec<JavaField>,
     pub methods: Vec<JavaMethod>,

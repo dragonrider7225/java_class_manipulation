@@ -41,7 +41,7 @@ fn as_bytes<T>(x: &T) -> &[u8] {
 }
 
 /// An exception handler for some function body.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ExceptionHandler {
     /// The program counter relative to the beginning of the associated "Code" attribute's code
     /// array at which this exception handler becomes active.
@@ -3103,7 +3103,7 @@ impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
 }
 
 /// An attribute of some object in a Java class file.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum JavaAttribute {
     /// A `long` value.
     ConstantLong(i64),
@@ -3517,7 +3517,7 @@ impl<'i> NomParse<(), &'i str> for PackageName {
 impl_from_str_for_nom_parse_cf!(PackageName);
 
 /// A fully-owned Java field object.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct JavaField {
     access_flags: u16,
     name: String,
@@ -3696,7 +3696,7 @@ pub fn read_methods(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<Vec<
 }
 
 /// A fully-owned Java method object.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct JavaMethod {
     access_flags: u16,
     name: String,
@@ -3832,7 +3832,7 @@ impl AccessFlagged for JavaMethod {
 }
 
 /// A version number.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ClassFileVersion(u16, u16);
 
 impl ClassFileVersion {
