@@ -16,10 +16,7 @@ use std::{
 use crate::{
     parsers::NomFlatError,
     types::{JavaType, QualifiedClassName},
-    ClassParseError,
-    CrateResult,
-    FieldRef,
-    MethodRef,
+    ClassParseError, CrateResult, FieldRef, MethodRef,
 };
 
 use super::JavaIdentifier;
@@ -159,8 +156,8 @@ impl Display for CPAccessError {
                 actual,
             } => write!(
                 f,
-                "Tried to get {} of type {} at index {} when actual type is {}",
-                "constant pool entry", expected, request, actual,
+                "Tried to get constant pool entry of type {} at index {} when actual type is {}",
+                expected, request, actual,
             ),
             CPAccessError::FailedTypeConversion {
                 request,
@@ -168,19 +165,15 @@ impl Display for CPAccessError {
                 cause,
             } => write!(
                 f,
-                "Tried to convert entry of type {} at index {} into {} but got error {:?}",
-                source, request, "another type", cause,
+                "Tried to convert entry of type {} at index {} into another type but got error {:?}",
+                source, request, cause,
             ),
             CPAccessError::ConstantPoolFull => write!(f, "Ran out of space in constant pool"),
             CPAccessError::FailedParse(e) => write!(f, "Parse failure: {}", e),
             CPAccessError::BadTarget { request, cause } => write!(
                 f,
-                r#"Tried to {} at {} which {} but got error "{}" when attempting to {}."#,
-                "get value from constant pool entry",
-                request,
-                "references another element of the constant pool",
-                cause,
-                "get a value from that element",
+                r#"Tried to get value from constant pool entry at {} which references another element of the constant pool but got error "{}" when attempting to get a value from that element."#,
+                request, cause,
             ),
         }
     }
@@ -554,7 +547,9 @@ impl ConstantPool {
         if initial_capacity > Self::MAX_CAPACITY {
             Err(CPAccessError::ConstantPoolFull)
         } else {
-            Ok(Self { pool: Vec::with_capacity(initial_capacity) })
+            Ok(Self {
+                pool: Vec::with_capacity(initial_capacity),
+            })
         }
     }
 
@@ -586,7 +581,10 @@ impl ConstantPool {
     pub fn size(&self) -> u16 {
         let len = self.pool.len();
         if len > Self::MAX_CAPACITY {
-            panic!("Constant pool too large ({}). Maximum size is {}", len, 0xFFFE);
+            panic!(
+                "Constant pool too large ({}). Maximum size is {}",
+                len, 0xFFFE
+            );
         }
         len.try_into().unwrap()
     }
@@ -625,7 +623,7 @@ impl ConstantPool {
         match self.get(idx)? {
             &CPEntry::String(idx) => self.get_utf8(idx).map_err(|e| CPAccessError::BadTarget {
                 request: idx,
-                cause: box e,
+                cause: Box::new(e),
             }),
             entry => Err(CPAccessError::BadEntryType {
                 request: idx,
@@ -646,13 +644,13 @@ impl ConstantPool {
             &CPEntry::Class(idx) => {
                 let s = self.get_utf8(idx).map_err(|e| CPAccessError::BadTarget {
                     request: idx,
-                    cause: box e,
+                    cause: Box::new(e),
                 })?;
                 QualifiedClassName::from_full_str(s).map_err(|e| {
                     CPAccessError::FailedTypeConversion {
                         request: idx,
                         source: CPEntryType::Utf8,
-                        cause: Some(box NomFlatError::from(e)),
+                        cause: Some(Box::new(NomFlatError::from(e))),
                     }
                 })
             }
@@ -672,7 +670,7 @@ impl ConstantPool {
                 .map_err(move |e| CPAccessError::FailedTypeConversion {
                     request: idx,
                     source: CPEntryType::Utf8,
-                    cause: Some(box e),
+                    cause: Some(Box::new(e)),
                 }),
             entry => Err(CPAccessError::BadEntryType {
                 request: idx,
@@ -690,7 +688,7 @@ impl ConstantPool {
                     CPAccessError::FailedTypeConversion {
                         request: ident_idx,
                         source: CPEntryType::Utf8,
-                        cause: Some(box e),
+                        cause: Some(Box::new(e)),
                     }
                 })?;
                 let r#type = self.get_type(type_idx)?;
@@ -698,7 +696,7 @@ impl ConstantPool {
             })()
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
-                cause: box e,
+                cause: Box::new(e),
             }),
             entry => Err(CPAccessError::BadEntryType {
                 request: idx,
@@ -710,24 +708,24 @@ impl ConstantPool {
 
     /// Get the symbolic method reference at index `idx`.
     pub fn get_method_ref(&self, idx: u16) -> CPAccessResult<MethodRef> {
-        match self.get(idx)? {
-            &CPEntry::Methodref(qcn_idx, nat_idx) => (|| {
+        match *(self.get(idx)?) {
+            CPEntry::Methodref(qcn_idx, nat_idx) => (|| {
                 let owner = self.get_class_name(qcn_idx)?;
                 let (ident, r#type) = self.get_name_and_type(nat_idx)?;
                 Ok(MethodRef::new(false, owner, ident, r#type))
             })()
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
-                cause: box e,
+                cause: Box::new(e),
             }),
-            &CPEntry::InterfaceMethodref(qcn_idx, nat_idx) => (|| {
+            CPEntry::InterfaceMethodref(qcn_idx, nat_idx) => (|| {
                 let owner = self.get_class_name(qcn_idx)?;
                 let (ident, r#type) = self.get_name_and_type(nat_idx)?;
                 Ok(MethodRef::new(true, owner, ident, r#type))
             })()
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
-                cause: box e,
+                cause: Box::new(e),
             }),
             _ => unimplemented!("ConstantPool::get_method_ref: non-Methodref"),
         }
@@ -743,7 +741,7 @@ impl ConstantPool {
             })()
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
-                cause: box e,
+                cause: Box::new(e),
             }),
             _ => unimplemented!("ConstantPool::get_field_ref: non-Fieldref"),
         }
@@ -755,12 +753,7 @@ impl ConstantPool {
         if &CPEntry::After8Byte == entry {
             return None;
         }
-        for i in 1..=self.size() {
-            if &self[i] == entry {
-                return Some(i);
-            }
-        }
-        None
+        (1..=self.size()).find(|&i| &self[i] == entry)
     }
 
     /// Ensure that `entry` is present in the constant pool. If `entry` is already present in the
@@ -775,10 +768,7 @@ impl ConstantPool {
                 Err(CPAccessError::ConstantPoolFull)
             }
             (None, size) => {
-                let is_wide = match entry {
-                    CPEntry::Long(_) | CPEntry::Double(_) => true,
-                    _ => false,
-                };
+                let is_wide = matches!(entry, CPEntry::Long(_) | CPEntry::Double(_));
                 self.pool.push(entry);
                 if is_wide {
                     self.pool.push(CPEntry::After8Byte);
@@ -876,7 +866,10 @@ impl ConstantPool {
         &mut self,
         interfaces: Vec<QualifiedClassName>,
     ) -> CPAccessResult<Vec<u16>> {
-        interfaces.into_iter().map(|interface| self.add_type(JavaType::Class(interface))).collect()
+        interfaces
+            .into_iter()
+            .map(|interface| self.add_type(JavaType::Class(interface)))
+            .collect()
     }
 }
 
@@ -884,6 +877,7 @@ impl Index<u16> for ConstantPool {
     type Output = CPEntry;
 
     fn index(&self, idx: u16) -> &Self::Output {
-        self.get(idx).expect(&format!("Index {} out of bounds: [1, {}]", idx, self.size()))
+        self.get(idx)
+            .unwrap_or_else(|_| panic!("Index {} out of bounds: [1, {}]", idx, self.size()))
     }
 }

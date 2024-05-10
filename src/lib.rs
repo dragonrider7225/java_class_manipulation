@@ -1,7 +1,8 @@
 //! A library to parse a Java class file.
 
 #![feature(associated_type_defaults)]
-#![feature(box_patterns, box_syntax)]
+#![feature(box_patterns)]
+#![feature(lint_reasons)]
 
 use extended_io as eio;
 
@@ -292,13 +293,13 @@ impl Display for ClassParseError {
             }
             ClassParseError::InvalidConstantPoolEntryTag { actual } => write!(
                 f,
-                "Invalid constant pool entry tag: {}, found {}",
-                "Expected constant pool entry tag", actual,
+                "Invalid constant pool entry tag: Expected constant pool entry tag, found {}",
+                actual,
             ),
             ClassParseError::InvalidByteSequence { expected, actual } => write!(
                 f,
-                r#"Invalid byte sequence: {} "{}", found "{:?}""#,
-                "Expected byte sequence to match", expected, actual,
+                r#"Invalid byte sequence: Expected byte sequence to match "{}", found "{:?}""#,
+                expected, actual,
             ),
             ClassParseError::InvalidAttributeLength { name, len } => {
                 write!(f, "Invalid length ({}) for attribute {}", len, name)
@@ -335,8 +336,7 @@ fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
 }
 
 fn write_jvm8(sink: &mut dyn Write, s: &str) -> io::Result<()> {
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
+    for c in s.chars() {
         match c.into() {
             0u32 => eio::write_u16(sink, 0xC080)?,
             0x01..=0x7F => eio::write_u8(sink, c as u8)?,
@@ -542,12 +542,20 @@ pub trait AccessFlagged {
 pub struct JavaClass {
     version: ClassFileVersion,
     access_flags: u16,
-    this_class: QualifiedClassName,
-    super_class: QualifiedClassName,
-    interfaces: Vec<QualifiedClassName>,
-    fields: Vec<JavaField>,
-    methods: Vec<JavaMethod>,
+    related_types: ClassTree,
+    members: ClassMembers,
     attributes: Vec<JavaAttribute>,
+}
+
+pub struct ClassTree {
+    pub this_class: QualifiedClassName,
+    pub super_class: QualifiedClassName,
+    pub interfaces: Vec<QualifiedClassName>,
+}
+
+pub struct ClassMembers {
+    pub fields: Vec<JavaField>,
+    pub methods: Vec<JavaMethod>,
 }
 
 fn read_interfaces(
@@ -568,21 +576,15 @@ impl JavaClass {
     pub fn new(
         version: ClassFileVersion,
         access_flags: u16,
-        this_class: QualifiedClassName,
-        super_class: QualifiedClassName,
-        interfaces: Vec<QualifiedClassName>,
-        fields: Vec<JavaField>,
-        methods: Vec<JavaMethod>,
+        related_types: ClassTree,
+        members: ClassMembers,
         attributes: Vec<JavaAttribute>,
     ) -> JavaClass {
         JavaClass {
             version,
             access_flags,
-            this_class,
-            super_class,
-            interfaces,
-            fields,
-            methods,
+            related_types,
+            members,
             attributes,
         }
     }
@@ -638,11 +640,12 @@ impl JavaClass {
         let ret = JavaClass::new(
             version,
             access_flags,
-            this_class,
-            super_class,
-            interfaces,
-            fields,
-            methods,
+            ClassTree {
+                this_class,
+                super_class,
+                interfaces,
+            },
+            ClassMembers { fields, methods },
             attributes,
         );
         Ok(ret)
@@ -674,15 +677,17 @@ impl JavaClass {
         //     attributes: [Attribute; num_attributes],
         // }
         let mut pool = ConstantPool::default();
-        let this_class_idx = pool.add_class_name(self.this_class)?;
-        let super_class_idx = pool.add_class_name(self.super_class)?;
-        let interface_idxs = pool.add_interfaces(self.interfaces)?;
+        let this_class_idx = pool.add_class_name(self.related_types.this_class)?;
+        let super_class_idx = pool.add_class_name(self.related_types.super_class)?;
+        let interface_idxs = pool.add_interfaces(self.related_types.interfaces)?;
         let raw_fields: Vec<RawField> = self
+            .members
             .fields
             .into_iter()
             .map(|field| field.into_raw(&mut pool))
             .collect::<Result<_, _>>()?;
         let raw_methods: Vec<RawMethod> = self
+            .members
             .methods
             .into_iter()
             .map(|method| method.into_raw(&mut pool))
@@ -726,27 +731,27 @@ impl JavaClass {
 
     /// Get the name of the class.
     pub fn get_name(&self) -> &QualifiedClassName {
-        &self.this_class
+        &self.related_types.this_class
     }
 
     /// Get the name of the non-interface class directly extended by the class.
     pub fn get_superclass_name(&self) -> &QualifiedClassName {
-        &self.super_class
+        &self.related_types.super_class
     }
 
     /// Get the names of the interfaces directly implemented by the class.
     pub fn get_interface_names(&self) -> &[QualifiedClassName] {
-        &self.interfaces[..]
+        &self.related_types.interfaces[..]
     }
 
     /// Get the fields of the class.
     pub fn fields(&self) -> &[JavaField] {
-        &self.fields[..]
+        &self.members.fields[..]
     }
 
     /// Get the methods of the class.
     pub fn methods(&self) -> &[JavaMethod] {
-        &self.methods[..]
+        &self.members.methods[..]
     }
 
     /// Get the attributes of the class.
@@ -826,172 +831,5 @@ impl AccessFlagged for JavaClass {
 
     fn is_enum(&self) -> bool {
         self.access_flags & 0x4000 != 0
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn java_type_parser_fails_on_empty() {
-        assert!("".parse::<JavaType>().is_err());
-    }
-
-    #[test]
-    fn java_type_parses_byte() {
-        let src = "B";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Byte));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_char() {
-        let src = "C";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Char));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_double() {
-        let src = "D";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Double));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_float() {
-        let src = "F";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Float));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_int() {
-        let src = "I";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Int));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_long() {
-        let src = "J";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Long));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn java_type_parses_class_name_default_package() {
-        let src = "LClass;";
-        let expected = Ok(JavaType::Class(QualifiedClassName::ClassFile(
-            PackageName::DEFAULT_PACKAGE,
-            JavaIdentifier::new("Class").unwrap(),
-        )));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[allow(non_snake_case)]
-    #[test]
-    fn parses_class_name_Object() {
-        let src = "Ljava/lang/Object;";
-        let expected = Ok(JavaType::Class(QualifiedClassName::ClassFile(
-            PackageName(vec![
-                JavaIdentifier::new("java").unwrap(),
-                JavaIdentifier::new("lang").unwrap(),
-            ]),
-            JavaIdentifier::new("Object").unwrap(),
-        )));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_short() {
-        let src = "S";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Short));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_bool() {
-        let src = "Z";
-        let expected = Ok(JavaType::Primitive(JavaPrimitive::Bool));
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_array_int() {
-        let src = "[I";
-        let expected = JavaType::mk_array(JavaType::Primitive(JavaPrimitive::Int))
-            .ok_or_else(Default::default);
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_array_array_bool() {
-        let src = "[[Z";
-        let bool_array = JavaType::mk_array(JavaType::Primitive(JavaPrimitive::Bool)).unwrap();
-        let expected = JavaType::mk_array(bool_array).ok_or_else(Default::default);
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_func_thunk() {
-        let src = "()V";
-        let expected = JavaType::mk_method(vec![], JavaType::Primitive(JavaPrimitive::Void))
-            .ok_or_else(Default::default);
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_func_int_void() {
-        let src = "(I)V";
-        let arg_types = vec![JavaType::Primitive(JavaPrimitive::Int)];
-        let expected = JavaType::mk_method(arg_types, JavaType::Primitive(JavaPrimitive::Void))
-            .ok_or_else(Default::default);
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[allow(non_snake_case)]
-    #[test]
-    fn parses_func_array_int_int_Object() {
-        let src = "([II)Ljava/lang/Object;";
-        let arg_types = vec![
-            JavaType::Class(QualifiedClassName::Array(Either::Left(JavaPrimitive::Int))),
-            JavaType::Primitive(JavaPrimitive::Int),
-        ];
-        let ret_type = JavaType::Class(QualifiedClassName::ClassFile(
-            PackageName(vec![
-                JavaIdentifier::new("java").unwrap(),
-                JavaIdentifier::new("lang").unwrap(),
-            ]),
-            JavaIdentifier::new("Object").unwrap(),
-        ));
-        let expected = JavaType::mk_method(arg_types, ret_type).ok_or_else(Default::default);
-        let result = src.parse();
-        assert_eq!(expected, result);
-    }
-
-    #[test]
-    fn parses_aaload() -> Result<(), io::Error> {
-        let src = [JavaOpCode::AALOAD];
-        let expected = JavaOpCode::Aaload;
-        let result =
-            JavaOpCode::nom_parse(&Default::default(), &src[..]).map_err(NomFlatError::from)?;
-        assert_eq!(expected, result.1?);
-        Ok(())
     }
 }

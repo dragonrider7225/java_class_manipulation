@@ -31,7 +31,7 @@ fn parse_args() -> Config {
         .help("Sets the class file to write")
         .takes_value(true)
         .required(true);
-    #[cfg(map_file)]
+    #[cfg(feature = "map_file")]
     let map_arg = Arg::with_name("map")
         .short("m")
         .long("map")
@@ -44,12 +44,8 @@ fn parse_args() -> Config {
         .about("Reads a Java class file, parses it, then writes the parsed class.")
         .arg(in_arg)
         .arg(out_arg);
-    #[cfg(map_file)]
-    let mut args = args;
-    #[cfg(map_file)]
-    {
-        args = args.arg(map_arg);
-    }
+    #[cfg(feature = "map_file")]
+    let args = args.arg(map_arg);
     let matches = args.get_matches();
     let in_file = matches
         .value_of("input")
@@ -76,6 +72,7 @@ fn main() -> io::Result<()> {
     let mut fout = OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(true)
         .open(config.out_file)?;
     class
         .write(&mut fout)

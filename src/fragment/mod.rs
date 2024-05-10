@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    parsers::{NomParse, NomParseContextFree},
+    parsers::{just, NomParse, NomParseContextFree},
     types::{JavaType, PrimitiveValueType, QualifiedClassName},
     AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };
@@ -2409,9 +2409,7 @@ impl JavaOpCode {
                 match_offsets,
             } => {
                 ret.push(JavaOpCode::LOOKUPSWITCH);
-                for _ in 0..((idx + 1) % 4) {
-                    ret.push(0);
-                }
+                ret.extend(std::iter::repeat(0).take(((idx + 1) % 4).into()));
                 ret.extend(&default_offset.to_be_bytes());
                 ret.extend(&(match_offsets.len() as u32).to_be_bytes());
                 for (r#match, offset) in match_offsets {
@@ -2524,247 +2522,363 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
     fn nom_parse((idx, pool): Self::Env, s: Self::Input) -> IResult<Self::Input, Self::Output> {
         comb::flat_map(num::be_u8, |opcode| {
             let ret: Box<dyn Parser<_, _, _>> = match opcode {
-                opcode if opcode == JavaOpCode::NOP => box just!(Ok(JavaOpCode::Nop)),
+                opcode if opcode == JavaOpCode::NOP => Box::new(just!(Ok(JavaOpCode::Nop))),
                 opcode if opcode == JavaOpCode::ACONST_NULL => {
-                    box just!(Ok(JavaOpCode::AconstNull))
+                    Box::new(just!(Ok(JavaOpCode::AconstNull)))
                 }
-                opcode if opcode == JavaOpCode::ICONST_M1 => box just!(Ok(JavaOpCode::IconstM1)),
-                opcode if opcode == JavaOpCode::ICONST_0 => box just!(Ok(JavaOpCode::Iconst0)),
-                opcode if opcode == JavaOpCode::ICONST_1 => box just!(Ok(JavaOpCode::Iconst1)),
-                opcode if opcode == JavaOpCode::ICONST_2 => box just!(Ok(JavaOpCode::Iconst2)),
-                opcode if opcode == JavaOpCode::ICONST_3 => box just!(Ok(JavaOpCode::Iconst3)),
-                opcode if opcode == JavaOpCode::ICONST_4 => box just!(Ok(JavaOpCode::Iconst4)),
-                opcode if opcode == JavaOpCode::ICONST_5 => box just!(Ok(JavaOpCode::Iconst5)),
-                opcode if opcode == JavaOpCode::LCONST_0 => box just!(Ok(JavaOpCode::Lconst0)),
-                opcode if opcode == JavaOpCode::LCONST_1 => box just!(Ok(JavaOpCode::Lconst1)),
-                opcode if opcode == JavaOpCode::FCONST_0 => box just!(Ok(JavaOpCode::Fconst0)),
-                opcode if opcode == JavaOpCode::FCONST_1 => box just!(Ok(JavaOpCode::Fconst1)),
-                opcode if opcode == JavaOpCode::FCONST_2 => box just!(Ok(JavaOpCode::Fconst2)),
-                opcode if opcode == JavaOpCode::DCONST_0 => box just!(Ok(JavaOpCode::Dconst0)),
-                opcode if opcode == JavaOpCode::DCONST_1 => box just!(Ok(JavaOpCode::Dconst1)),
+                opcode if opcode == JavaOpCode::ICONST_M1 => {
+                    Box::new(just!(Ok(JavaOpCode::IconstM1)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst0)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst1)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst2)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst3)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_4 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst4)))
+                }
+                opcode if opcode == JavaOpCode::ICONST_5 => {
+                    Box::new(just!(Ok(JavaOpCode::Iconst5)))
+                }
+                opcode if opcode == JavaOpCode::LCONST_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Lconst0)))
+                }
+                opcode if opcode == JavaOpCode::LCONST_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Lconst1)))
+                }
+                opcode if opcode == JavaOpCode::FCONST_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Fconst0)))
+                }
+                opcode if opcode == JavaOpCode::FCONST_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Fconst1)))
+                }
+                opcode if opcode == JavaOpCode::FCONST_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Fconst2)))
+                }
+                opcode if opcode == JavaOpCode::DCONST_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Dconst0)))
+                }
+                opcode if opcode == JavaOpCode::DCONST_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Dconst1)))
+                }
                 opcode if opcode == JavaOpCode::BIPUSH => {
-                    box comb::map(num::be_u8, |value| Ok(JavaOpCode::Bipush { value }))
+                    Box::new(comb::map(num::be_u8, |value| {
+                        Ok(JavaOpCode::Bipush { value })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::LDC => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Ldc { index }))
+                    Box::new(comb::map(num::be_u8, |index| Ok(JavaOpCode::Ldc { index })))
                 }
                 opcode if opcode == JavaOpCode::LDC_W => {
-                    box comb::map(num::be_u16, |index| Ok(JavaOpCode::LdcW { index }))
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::LdcW { index })
+                    }))
                 }
-                opcode if opcode == JavaOpCode::LDC2_W => box comb::map(num::be_u16, |index| {
-                    let entry = pool.get(index)?;
-                    let value = match entry {
-                        &CPEntry::Double(d) => Either::Right(d),
-                        &CPEntry::Long(l) => Either::Left(l),
-                        _ => Err(format!(
-                            "Ldc2W must refer to a double or a long. Refers to {}",
-                            entry.r#type(),
-                        ))?,
-                    };
-                    Ok(JavaOpCode::Ldc2W { value })
-                }),
-                opcode if opcode == JavaOpCode::ILOAD => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Iload { index }))
+                opcode if opcode == JavaOpCode::LDC2_W => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        let entry = pool.get(index)?;
+                        let value = match entry {
+                            CPEntry::Double(d) => Either::Right(*d),
+                            CPEntry::Long(l) => Either::Left(*l),
+                            _ => {
+                                return Err(format!(
+                                    "Ldc2W must refer to a double or a long. Refers to {}",
+                                    entry.r#type(),
+                                )
+                                .into())
+                            }
+                        };
+                        Ok(JavaOpCode::Ldc2W { value })
+                    }))
                 }
-                opcode if opcode == JavaOpCode::LLOAD => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Lload { index }))
-                }
-                opcode if opcode == JavaOpCode::FLOAD => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Fload { index }))
-                }
-                opcode if opcode == JavaOpCode::DLOAD => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Dload { index }))
-                }
-                opcode if opcode == JavaOpCode::ALOAD => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Aload { index }))
-                }
-                opcode if opcode == JavaOpCode::ILOAD_0 => box just!(Ok(JavaOpCode::Iload0)),
-                opcode if opcode == JavaOpCode::ILOAD_1 => box just!(Ok(JavaOpCode::Iload1)),
-                opcode if opcode == JavaOpCode::ILOAD_2 => box just!(Ok(JavaOpCode::Iload2)),
-                opcode if opcode == JavaOpCode::ILOAD_3 => box just!(Ok(JavaOpCode::Iload3)),
-                opcode if opcode == JavaOpCode::LLOAD_0 => box just!(Ok(JavaOpCode::Lload0)),
-                opcode if opcode == JavaOpCode::LLOAD_1 => box just!(Ok(JavaOpCode::Lload1)),
-                opcode if opcode == JavaOpCode::LLOAD_2 => box just!(Ok(JavaOpCode::Lload2)),
-                opcode if opcode == JavaOpCode::LLOAD_3 => box just!(Ok(JavaOpCode::Lload3)),
-                opcode if opcode == JavaOpCode::FLOAD_0 => box just!(Ok(JavaOpCode::Fload0)),
-                opcode if opcode == JavaOpCode::FLOAD_1 => box just!(Ok(JavaOpCode::Fload1)),
-                opcode if opcode == JavaOpCode::FLOAD_2 => box just!(Ok(JavaOpCode::Fload2)),
-                opcode if opcode == JavaOpCode::FLOAD_3 => box just!(Ok(JavaOpCode::Fload3)),
-                opcode if opcode == JavaOpCode::DLOAD_0 => box just!(Ok(JavaOpCode::Dload0)),
-                opcode if opcode == JavaOpCode::DLOAD_1 => box just!(Ok(JavaOpCode::Dload1)),
-                opcode if opcode == JavaOpCode::DLOAD_2 => box just!(Ok(JavaOpCode::Dload2)),
-                opcode if opcode == JavaOpCode::DLOAD_3 => box just!(Ok(JavaOpCode::Dload3)),
-                opcode if opcode == JavaOpCode::ALOAD_0 => box just!(Ok(JavaOpCode::Aload0)),
-                opcode if opcode == JavaOpCode::ALOAD_1 => box just!(Ok(JavaOpCode::Aload1)),
-                opcode if opcode == JavaOpCode::ALOAD_2 => box just!(Ok(JavaOpCode::Aload2)),
-                opcode if opcode == JavaOpCode::ALOAD_3 => box just!(Ok(JavaOpCode::Aload3)),
-                opcode if opcode == JavaOpCode::IALOAD => box just!(Ok(JavaOpCode::Iaload)),
-                opcode if opcode == JavaOpCode::LALOAD => box just!(Ok(JavaOpCode::Laload)),
-                opcode if opcode == JavaOpCode::FALOAD => box just!(Ok(JavaOpCode::Faload)),
-                opcode if opcode == JavaOpCode::DALOAD => box just!(Ok(JavaOpCode::Daload)),
-                opcode if opcode == JavaOpCode::AALOAD => box just!(Ok(JavaOpCode::Aaload)),
-                opcode if opcode == JavaOpCode::BALOAD => box just!(Ok(JavaOpCode::Baload)),
-                opcode if opcode == JavaOpCode::CALOAD => box just!(Ok(JavaOpCode::Caload)),
+                opcode if opcode == JavaOpCode::ILOAD => Box::new(comb::map(num::be_u8, |index| {
+                    Ok(JavaOpCode::Iload { index })
+                })),
+                opcode if opcode == JavaOpCode::LLOAD => Box::new(comb::map(num::be_u8, |index| {
+                    Ok(JavaOpCode::Lload { index })
+                })),
+                opcode if opcode == JavaOpCode::FLOAD => Box::new(comb::map(num::be_u8, |index| {
+                    Ok(JavaOpCode::Fload { index })
+                })),
+                opcode if opcode == JavaOpCode::DLOAD => Box::new(comb::map(num::be_u8, |index| {
+                    Ok(JavaOpCode::Dload { index })
+                })),
+                opcode if opcode == JavaOpCode::ALOAD => Box::new(comb::map(num::be_u8, |index| {
+                    Ok(JavaOpCode::Aload { index })
+                })),
+                opcode if opcode == JavaOpCode::ILOAD_0 => Box::new(just!(Ok(JavaOpCode::Iload0))),
+                opcode if opcode == JavaOpCode::ILOAD_1 => Box::new(just!(Ok(JavaOpCode::Iload1))),
+                opcode if opcode == JavaOpCode::ILOAD_2 => Box::new(just!(Ok(JavaOpCode::Iload2))),
+                opcode if opcode == JavaOpCode::ILOAD_3 => Box::new(just!(Ok(JavaOpCode::Iload3))),
+                opcode if opcode == JavaOpCode::LLOAD_0 => Box::new(just!(Ok(JavaOpCode::Lload0))),
+                opcode if opcode == JavaOpCode::LLOAD_1 => Box::new(just!(Ok(JavaOpCode::Lload1))),
+                opcode if opcode == JavaOpCode::LLOAD_2 => Box::new(just!(Ok(JavaOpCode::Lload2))),
+                opcode if opcode == JavaOpCode::LLOAD_3 => Box::new(just!(Ok(JavaOpCode::Lload3))),
+                opcode if opcode == JavaOpCode::FLOAD_0 => Box::new(just!(Ok(JavaOpCode::Fload0))),
+                opcode if opcode == JavaOpCode::FLOAD_1 => Box::new(just!(Ok(JavaOpCode::Fload1))),
+                opcode if opcode == JavaOpCode::FLOAD_2 => Box::new(just!(Ok(JavaOpCode::Fload2))),
+                opcode if opcode == JavaOpCode::FLOAD_3 => Box::new(just!(Ok(JavaOpCode::Fload3))),
+                opcode if opcode == JavaOpCode::DLOAD_0 => Box::new(just!(Ok(JavaOpCode::Dload0))),
+                opcode if opcode == JavaOpCode::DLOAD_1 => Box::new(just!(Ok(JavaOpCode::Dload1))),
+                opcode if opcode == JavaOpCode::DLOAD_2 => Box::new(just!(Ok(JavaOpCode::Dload2))),
+                opcode if opcode == JavaOpCode::DLOAD_3 => Box::new(just!(Ok(JavaOpCode::Dload3))),
+                opcode if opcode == JavaOpCode::ALOAD_0 => Box::new(just!(Ok(JavaOpCode::Aload0))),
+                opcode if opcode == JavaOpCode::ALOAD_1 => Box::new(just!(Ok(JavaOpCode::Aload1))),
+                opcode if opcode == JavaOpCode::ALOAD_2 => Box::new(just!(Ok(JavaOpCode::Aload2))),
+                opcode if opcode == JavaOpCode::ALOAD_3 => Box::new(just!(Ok(JavaOpCode::Aload3))),
+                opcode if opcode == JavaOpCode::IALOAD => Box::new(just!(Ok(JavaOpCode::Iaload))),
+                opcode if opcode == JavaOpCode::LALOAD => Box::new(just!(Ok(JavaOpCode::Laload))),
+                opcode if opcode == JavaOpCode::FALOAD => Box::new(just!(Ok(JavaOpCode::Faload))),
+                opcode if opcode == JavaOpCode::DALOAD => Box::new(just!(Ok(JavaOpCode::Daload))),
+                opcode if opcode == JavaOpCode::AALOAD => Box::new(just!(Ok(JavaOpCode::Aaload))),
+                opcode if opcode == JavaOpCode::BALOAD => Box::new(just!(Ok(JavaOpCode::Baload))),
+                opcode if opcode == JavaOpCode::CALOAD => Box::new(just!(Ok(JavaOpCode::Caload))),
                 opcode if opcode == JavaOpCode::ISTORE => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Istore { index }))
+                    Box::new(comb::map(num::be_u8, |index| {
+                        Ok(JavaOpCode::Istore { index })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::LSTORE => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Lstore { index }))
+                    Box::new(comb::map(num::be_u8, |index| {
+                        Ok(JavaOpCode::Lstore { index })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::FSTORE => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Fstore { index }))
+                    Box::new(comb::map(num::be_u8, |index| {
+                        Ok(JavaOpCode::Fstore { index })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::DSTORE => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Dstore { index }))
+                    Box::new(comb::map(num::be_u8, |index| {
+                        Ok(JavaOpCode::Dstore { index })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::ASTORE => {
-                    box comb::map(num::be_u8, |index| Ok(JavaOpCode::Astore { index }))
+                    Box::new(comb::map(num::be_u8, |index| {
+                        Ok(JavaOpCode::Astore { index })
+                    }))
                 }
-                opcode if opcode == JavaOpCode::ISTORE_0 => box just!(Ok(JavaOpCode::Istore0)),
-                opcode if opcode == JavaOpCode::ISTORE_1 => box just!(Ok(JavaOpCode::Istore1)),
-                opcode if opcode == JavaOpCode::ISTORE_2 => box just!(Ok(JavaOpCode::Istore2)),
-                opcode if opcode == JavaOpCode::ISTORE_3 => box just!(Ok(JavaOpCode::Istore3)),
-                opcode if opcode == JavaOpCode::LSTORE_0 => box just!(Ok(JavaOpCode::Lstore0)),
-                opcode if opcode == JavaOpCode::LSTORE_1 => box just!(Ok(JavaOpCode::Lstore1)),
-                opcode if opcode == JavaOpCode::LSTORE_2 => box just!(Ok(JavaOpCode::Lstore2)),
-                opcode if opcode == JavaOpCode::LSTORE_3 => box just!(Ok(JavaOpCode::Lstore3)),
-                opcode if opcode == JavaOpCode::FSTORE_0 => box just!(Ok(JavaOpCode::Fstore0)),
-                opcode if opcode == JavaOpCode::FSTORE_1 => box just!(Ok(JavaOpCode::Fstore1)),
-                opcode if opcode == JavaOpCode::FSTORE_2 => box just!(Ok(JavaOpCode::Fstore2)),
-                opcode if opcode == JavaOpCode::FSTORE_3 => box just!(Ok(JavaOpCode::Fstore3)),
-                opcode if opcode == JavaOpCode::DSTORE_0 => box just!(Ok(JavaOpCode::Dstore0)),
-                opcode if opcode == JavaOpCode::DSTORE_1 => box just!(Ok(JavaOpCode::Dstore1)),
-                opcode if opcode == JavaOpCode::DSTORE_2 => box just!(Ok(JavaOpCode::Dstore2)),
-                opcode if opcode == JavaOpCode::DSTORE_3 => box just!(Ok(JavaOpCode::Dstore3)),
-                opcode if opcode == JavaOpCode::ASTORE_0 => box just!(Ok(JavaOpCode::Astore0)),
-                opcode if opcode == JavaOpCode::ASTORE_1 => box just!(Ok(JavaOpCode::Astore1)),
-                opcode if opcode == JavaOpCode::ASTORE_2 => box just!(Ok(JavaOpCode::Astore2)),
-                opcode if opcode == JavaOpCode::ASTORE_3 => box just!(Ok(JavaOpCode::Astore3)),
-                opcode if opcode == JavaOpCode::IASTORE => box just!(Ok(JavaOpCode::Iastore)),
-                opcode if opcode == JavaOpCode::LASTORE => box just!(Ok(JavaOpCode::Lastore)),
-                opcode if opcode == JavaOpCode::FASTORE => box just!(Ok(JavaOpCode::Fastore)),
-                opcode if opcode == JavaOpCode::DASTORE => box just!(Ok(JavaOpCode::Dastore)),
-                opcode if opcode == JavaOpCode::AASTORE => box just!(Ok(JavaOpCode::Aastore)),
-                opcode if opcode == JavaOpCode::BASTORE => box just!(Ok(JavaOpCode::Bastore)),
-                opcode if opcode == JavaOpCode::CASTORE => box just!(Ok(JavaOpCode::Castore)),
-                opcode if opcode == JavaOpCode::POP => box just!(Ok(JavaOpCode::Pop)),
-                opcode if opcode == JavaOpCode::POP2 => box just!(Ok(JavaOpCode::Pop2)),
-                opcode if opcode == JavaOpCode::DUP => box just!(Ok(JavaOpCode::Dup)),
-                opcode if opcode == JavaOpCode::DUP_X1 => box just!(Ok(JavaOpCode::DupX1)),
-                opcode if opcode == JavaOpCode::DUP_X2 => box just!(Ok(JavaOpCode::DupX2)),
-                opcode if opcode == JavaOpCode::DUP2 => box just!(Ok(JavaOpCode::Dup2)),
-                opcode if opcode == JavaOpCode::DUP2_X1 => box just!(Ok(JavaOpCode::Dup2X1)),
-                opcode if opcode == JavaOpCode::DUP2_X2 => box just!(Ok(JavaOpCode::Dup2X2)),
-                opcode if opcode == JavaOpCode::IADD => box just!(Ok(JavaOpCode::Iadd)),
-                opcode if opcode == JavaOpCode::LADD => box just!(Ok(JavaOpCode::Ladd)),
-                opcode if opcode == JavaOpCode::FADD => box just!(Ok(JavaOpCode::Fadd)),
-                opcode if opcode == JavaOpCode::DADD => box just!(Ok(JavaOpCode::Dadd)),
-                opcode if opcode == JavaOpCode::ISUB => box just!(Ok(JavaOpCode::Isub)),
-                opcode if opcode == JavaOpCode::LSUB => box just!(Ok(JavaOpCode::Lsub)),
-                opcode if opcode == JavaOpCode::FSUB => box just!(Ok(JavaOpCode::Fsub)),
-                opcode if opcode == JavaOpCode::DSUB => box just!(Ok(JavaOpCode::Dsub)),
-                opcode if opcode == JavaOpCode::IMUL => box just!(Ok(JavaOpCode::Imul)),
-                opcode if opcode == JavaOpCode::LMUL => box just!(Ok(JavaOpCode::Lmul)),
-                opcode if opcode == JavaOpCode::FMUL => box just!(Ok(JavaOpCode::Fmul)),
-                opcode if opcode == JavaOpCode::DMUL => box just!(Ok(JavaOpCode::Dmul)),
-                opcode if opcode == JavaOpCode::IDIV => box just!(Ok(JavaOpCode::Idiv)),
-                opcode if opcode == JavaOpCode::LDIV => box just!(Ok(JavaOpCode::Ldiv)),
-                opcode if opcode == JavaOpCode::FDIV => box just!(Ok(JavaOpCode::Fdiv)),
-                opcode if opcode == JavaOpCode::DDIV => box just!(Ok(JavaOpCode::Ddiv)),
-                opcode if opcode == JavaOpCode::IREM => box just!(Ok(JavaOpCode::Irem)),
-                opcode if opcode == JavaOpCode::LREM => box just!(Ok(JavaOpCode::Lrem)),
-                opcode if opcode == JavaOpCode::FREM => box just!(Ok(JavaOpCode::Frem)),
-                opcode if opcode == JavaOpCode::DREM => box just!(Ok(JavaOpCode::Drem)),
-                opcode if opcode == JavaOpCode::INEG => box just!(Ok(JavaOpCode::Ineg)),
-                opcode if opcode == JavaOpCode::LNEG => box just!(Ok(JavaOpCode::Lneg)),
-                opcode if opcode == JavaOpCode::FNEG => box just!(Ok(JavaOpCode::Fneg)),
-                opcode if opcode == JavaOpCode::DNEG => box just!(Ok(JavaOpCode::Dneg)),
-                opcode if opcode == JavaOpCode::ISHL => box just!(Ok(JavaOpCode::Ishl)),
-                opcode if opcode == JavaOpCode::LSHL => box just!(Ok(JavaOpCode::Lshl)),
-                opcode if opcode == JavaOpCode::ISHR => box just!(Ok(JavaOpCode::Ishr)),
-                opcode if opcode == JavaOpCode::LSHR => box just!(Ok(JavaOpCode::Lshr)),
-                opcode if opcode == JavaOpCode::IUSHR => box just!(Ok(JavaOpCode::Iushr)),
-                opcode if opcode == JavaOpCode::LUSHR => box just!(Ok(JavaOpCode::Lushr)),
-                opcode if opcode == JavaOpCode::IAND => box just!(Ok(JavaOpCode::Iand)),
-                opcode if opcode == JavaOpCode::LAND => box just!(Ok(JavaOpCode::Land)),
-                opcode if opcode == JavaOpCode::IOR => box just!(Ok(JavaOpCode::Ior)),
-                opcode if opcode == JavaOpCode::LOR => box just!(Ok(JavaOpCode::Lor)),
-                opcode if opcode == JavaOpCode::IXOR => box just!(Ok(JavaOpCode::Ixor)),
-                opcode if opcode == JavaOpCode::LXOR => box just!(Ok(JavaOpCode::Lxor)),
-                opcode if opcode == JavaOpCode::IINC => {
-                    box comb::map(sequence::pair(num::be_u8, num::be_i8), |(index, delta)| {
-                        Ok(JavaOpCode::Iinc { index, delta })
-                    })
+                opcode if opcode == JavaOpCode::ISTORE_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Istore0)))
                 }
-                opcode if opcode == JavaOpCode::I2L => box just!(Ok(JavaOpCode::I2l)),
-                opcode if opcode == JavaOpCode::I2F => box just!(Ok(JavaOpCode::I2f)),
-                opcode if opcode == JavaOpCode::I2D => box just!(Ok(JavaOpCode::I2d)),
-                opcode if opcode == JavaOpCode::L2I => box just!(Ok(JavaOpCode::L2i)),
-                opcode if opcode == JavaOpCode::L2F => box just!(Ok(JavaOpCode::L2f)),
-                opcode if opcode == JavaOpCode::L2D => box just!(Ok(JavaOpCode::L2d)),
-                opcode if opcode == JavaOpCode::F2I => box just!(Ok(JavaOpCode::F2i)),
-                opcode if opcode == JavaOpCode::F2L => box just!(Ok(JavaOpCode::F2l)),
-                opcode if opcode == JavaOpCode::F2D => box just!(Ok(JavaOpCode::F2d)),
-                opcode if opcode == JavaOpCode::D2I => box just!(Ok(JavaOpCode::D2i)),
-                opcode if opcode == JavaOpCode::D2L => box just!(Ok(JavaOpCode::D2l)),
-                opcode if opcode == JavaOpCode::D2F => box just!(Ok(JavaOpCode::D2f)),
-                opcode if opcode == JavaOpCode::I2B => box just!(Ok(JavaOpCode::I2b)),
-                opcode if opcode == JavaOpCode::I2C => box just!(Ok(JavaOpCode::I2c)),
-                opcode if opcode == JavaOpCode::I2S => box just!(Ok(JavaOpCode::I2s)),
-                opcode if opcode == JavaOpCode::LCMP => box just!(Ok(JavaOpCode::Lcmp)),
-                opcode if opcode == JavaOpCode::FCMPL => box just!(Ok(JavaOpCode::Fcmpl)),
-                opcode if opcode == JavaOpCode::FCMPG => box just!(Ok(JavaOpCode::Fcmpg)),
-                opcode if opcode == JavaOpCode::DCMPL => box just!(Ok(JavaOpCode::Dcmpl)),
-                opcode if opcode == JavaOpCode::DCMPG => box just!(Ok(JavaOpCode::Dcmpg)),
+                opcode if opcode == JavaOpCode::ISTORE_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Istore1)))
+                }
+                opcode if opcode == JavaOpCode::ISTORE_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Istore2)))
+                }
+                opcode if opcode == JavaOpCode::ISTORE_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Istore3)))
+                }
+                opcode if opcode == JavaOpCode::LSTORE_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Lstore0)))
+                }
+                opcode if opcode == JavaOpCode::LSTORE_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Lstore1)))
+                }
+                opcode if opcode == JavaOpCode::LSTORE_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Lstore2)))
+                }
+                opcode if opcode == JavaOpCode::LSTORE_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Lstore3)))
+                }
+                opcode if opcode == JavaOpCode::FSTORE_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Fstore0)))
+                }
+                opcode if opcode == JavaOpCode::FSTORE_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Fstore1)))
+                }
+                opcode if opcode == JavaOpCode::FSTORE_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Fstore2)))
+                }
+                opcode if opcode == JavaOpCode::FSTORE_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Fstore3)))
+                }
+                opcode if opcode == JavaOpCode::DSTORE_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Dstore0)))
+                }
+                opcode if opcode == JavaOpCode::DSTORE_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Dstore1)))
+                }
+                opcode if opcode == JavaOpCode::DSTORE_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Dstore2)))
+                }
+                opcode if opcode == JavaOpCode::DSTORE_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Dstore3)))
+                }
+                opcode if opcode == JavaOpCode::ASTORE_0 => {
+                    Box::new(just!(Ok(JavaOpCode::Astore0)))
+                }
+                opcode if opcode == JavaOpCode::ASTORE_1 => {
+                    Box::new(just!(Ok(JavaOpCode::Astore1)))
+                }
+                opcode if opcode == JavaOpCode::ASTORE_2 => {
+                    Box::new(just!(Ok(JavaOpCode::Astore2)))
+                }
+                opcode if opcode == JavaOpCode::ASTORE_3 => {
+                    Box::new(just!(Ok(JavaOpCode::Astore3)))
+                }
+                opcode if opcode == JavaOpCode::IASTORE => Box::new(just!(Ok(JavaOpCode::Iastore))),
+                opcode if opcode == JavaOpCode::LASTORE => Box::new(just!(Ok(JavaOpCode::Lastore))),
+                opcode if opcode == JavaOpCode::FASTORE => Box::new(just!(Ok(JavaOpCode::Fastore))),
+                opcode if opcode == JavaOpCode::DASTORE => Box::new(just!(Ok(JavaOpCode::Dastore))),
+                opcode if opcode == JavaOpCode::AASTORE => Box::new(just!(Ok(JavaOpCode::Aastore))),
+                opcode if opcode == JavaOpCode::BASTORE => Box::new(just!(Ok(JavaOpCode::Bastore))),
+                opcode if opcode == JavaOpCode::CASTORE => Box::new(just!(Ok(JavaOpCode::Castore))),
+                opcode if opcode == JavaOpCode::POP => Box::new(just!(Ok(JavaOpCode::Pop))),
+                opcode if opcode == JavaOpCode::POP2 => Box::new(just!(Ok(JavaOpCode::Pop2))),
+                opcode if opcode == JavaOpCode::DUP => Box::new(just!(Ok(JavaOpCode::Dup))),
+                opcode if opcode == JavaOpCode::DUP_X1 => Box::new(just!(Ok(JavaOpCode::DupX1))),
+                opcode if opcode == JavaOpCode::DUP_X2 => Box::new(just!(Ok(JavaOpCode::DupX2))),
+                opcode if opcode == JavaOpCode::DUP2 => Box::new(just!(Ok(JavaOpCode::Dup2))),
+                opcode if opcode == JavaOpCode::DUP2_X1 => Box::new(just!(Ok(JavaOpCode::Dup2X1))),
+                opcode if opcode == JavaOpCode::DUP2_X2 => Box::new(just!(Ok(JavaOpCode::Dup2X2))),
+                opcode if opcode == JavaOpCode::IADD => Box::new(just!(Ok(JavaOpCode::Iadd))),
+                opcode if opcode == JavaOpCode::LADD => Box::new(just!(Ok(JavaOpCode::Ladd))),
+                opcode if opcode == JavaOpCode::FADD => Box::new(just!(Ok(JavaOpCode::Fadd))),
+                opcode if opcode == JavaOpCode::DADD => Box::new(just!(Ok(JavaOpCode::Dadd))),
+                opcode if opcode == JavaOpCode::ISUB => Box::new(just!(Ok(JavaOpCode::Isub))),
+                opcode if opcode == JavaOpCode::LSUB => Box::new(just!(Ok(JavaOpCode::Lsub))),
+                opcode if opcode == JavaOpCode::FSUB => Box::new(just!(Ok(JavaOpCode::Fsub))),
+                opcode if opcode == JavaOpCode::DSUB => Box::new(just!(Ok(JavaOpCode::Dsub))),
+                opcode if opcode == JavaOpCode::IMUL => Box::new(just!(Ok(JavaOpCode::Imul))),
+                opcode if opcode == JavaOpCode::LMUL => Box::new(just!(Ok(JavaOpCode::Lmul))),
+                opcode if opcode == JavaOpCode::FMUL => Box::new(just!(Ok(JavaOpCode::Fmul))),
+                opcode if opcode == JavaOpCode::DMUL => Box::new(just!(Ok(JavaOpCode::Dmul))),
+                opcode if opcode == JavaOpCode::IDIV => Box::new(just!(Ok(JavaOpCode::Idiv))),
+                opcode if opcode == JavaOpCode::LDIV => Box::new(just!(Ok(JavaOpCode::Ldiv))),
+                opcode if opcode == JavaOpCode::FDIV => Box::new(just!(Ok(JavaOpCode::Fdiv))),
+                opcode if opcode == JavaOpCode::DDIV => Box::new(just!(Ok(JavaOpCode::Ddiv))),
+                opcode if opcode == JavaOpCode::IREM => Box::new(just!(Ok(JavaOpCode::Irem))),
+                opcode if opcode == JavaOpCode::LREM => Box::new(just!(Ok(JavaOpCode::Lrem))),
+                opcode if opcode == JavaOpCode::FREM => Box::new(just!(Ok(JavaOpCode::Frem))),
+                opcode if opcode == JavaOpCode::DREM => Box::new(just!(Ok(JavaOpCode::Drem))),
+                opcode if opcode == JavaOpCode::INEG => Box::new(just!(Ok(JavaOpCode::Ineg))),
+                opcode if opcode == JavaOpCode::LNEG => Box::new(just!(Ok(JavaOpCode::Lneg))),
+                opcode if opcode == JavaOpCode::FNEG => Box::new(just!(Ok(JavaOpCode::Fneg))),
+                opcode if opcode == JavaOpCode::DNEG => Box::new(just!(Ok(JavaOpCode::Dneg))),
+                opcode if opcode == JavaOpCode::ISHL => Box::new(just!(Ok(JavaOpCode::Ishl))),
+                opcode if opcode == JavaOpCode::LSHL => Box::new(just!(Ok(JavaOpCode::Lshl))),
+                opcode if opcode == JavaOpCode::ISHR => Box::new(just!(Ok(JavaOpCode::Ishr))),
+                opcode if opcode == JavaOpCode::LSHR => Box::new(just!(Ok(JavaOpCode::Lshr))),
+                opcode if opcode == JavaOpCode::IUSHR => Box::new(just!(Ok(JavaOpCode::Iushr))),
+                opcode if opcode == JavaOpCode::LUSHR => Box::new(just!(Ok(JavaOpCode::Lushr))),
+                opcode if opcode == JavaOpCode::IAND => Box::new(just!(Ok(JavaOpCode::Iand))),
+                opcode if opcode == JavaOpCode::LAND => Box::new(just!(Ok(JavaOpCode::Land))),
+                opcode if opcode == JavaOpCode::IOR => Box::new(just!(Ok(JavaOpCode::Ior))),
+                opcode if opcode == JavaOpCode::LOR => Box::new(just!(Ok(JavaOpCode::Lor))),
+                opcode if opcode == JavaOpCode::IXOR => Box::new(just!(Ok(JavaOpCode::Ixor))),
+                opcode if opcode == JavaOpCode::LXOR => Box::new(just!(Ok(JavaOpCode::Lxor))),
+                opcode if opcode == JavaOpCode::IINC => Box::new(comb::map(
+                    sequence::pair(num::be_u8, num::be_i8),
+                    |(index, delta)| Ok(JavaOpCode::Iinc { index, delta }),
+                )),
+                opcode if opcode == JavaOpCode::I2L => Box::new(just!(Ok(JavaOpCode::I2l))),
+                opcode if opcode == JavaOpCode::I2F => Box::new(just!(Ok(JavaOpCode::I2f))),
+                opcode if opcode == JavaOpCode::I2D => Box::new(just!(Ok(JavaOpCode::I2d))),
+                opcode if opcode == JavaOpCode::L2I => Box::new(just!(Ok(JavaOpCode::L2i))),
+                opcode if opcode == JavaOpCode::L2F => Box::new(just!(Ok(JavaOpCode::L2f))),
+                opcode if opcode == JavaOpCode::L2D => Box::new(just!(Ok(JavaOpCode::L2d))),
+                opcode if opcode == JavaOpCode::F2I => Box::new(just!(Ok(JavaOpCode::F2i))),
+                opcode if opcode == JavaOpCode::F2L => Box::new(just!(Ok(JavaOpCode::F2l))),
+                opcode if opcode == JavaOpCode::F2D => Box::new(just!(Ok(JavaOpCode::F2d))),
+                opcode if opcode == JavaOpCode::D2I => Box::new(just!(Ok(JavaOpCode::D2i))),
+                opcode if opcode == JavaOpCode::D2L => Box::new(just!(Ok(JavaOpCode::D2l))),
+                opcode if opcode == JavaOpCode::D2F => Box::new(just!(Ok(JavaOpCode::D2f))),
+                opcode if opcode == JavaOpCode::I2B => Box::new(just!(Ok(JavaOpCode::I2b))),
+                opcode if opcode == JavaOpCode::I2C => Box::new(just!(Ok(JavaOpCode::I2c))),
+                opcode if opcode == JavaOpCode::I2S => Box::new(just!(Ok(JavaOpCode::I2s))),
+                opcode if opcode == JavaOpCode::LCMP => Box::new(just!(Ok(JavaOpCode::Lcmp))),
+                opcode if opcode == JavaOpCode::FCMPL => Box::new(just!(Ok(JavaOpCode::Fcmpl))),
+                opcode if opcode == JavaOpCode::FCMPG => Box::new(just!(Ok(JavaOpCode::Fcmpg))),
+                opcode if opcode == JavaOpCode::DCMPL => Box::new(just!(Ok(JavaOpCode::Dcmpl))),
+                opcode if opcode == JavaOpCode::DCMPG => Box::new(just!(Ok(JavaOpCode::Dcmpg))),
                 opcode if opcode == JavaOpCode::IFEQ => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifeq { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifeq { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFNE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifne { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifne { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFLT => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Iflt { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Iflt { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFGE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifge { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifge { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFGT => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifgt { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifgt { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFLE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifle { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifle { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPEQ => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmpeq { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmpeq { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPNE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmpne { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmpne { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPLT => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmplt { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmplt { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPGE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmpge { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmpge { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPGT => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmpgt { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmpgt { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ICMPLE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfIcmple { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfIcmple { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ACMPEQ => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfAcmpeq { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfAcmpeq { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IF_ACMPNE => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::IfAcmpne { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::IfAcmpne { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::GOTO => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Goto { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Goto { offset })
+                    }))
                 }
-                opcode if opcode == JavaOpCode::GOTO => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Jsr { offset }))
-                }
-                opcode if opcode == JavaOpCode::LOOKUPSWITCH => box comb::map(
+                opcode if opcode == JavaOpCode::JSR => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(JavaOpCode::Jsr { offset })
+                })),
+                opcode if opcode == JavaOpCode::LOOKUPSWITCH => Box::new(comb::map(
                     sequence::pair(
                         sequence::preceded(bytes::take((idx + 1) % 4), num::be_i32),
                         comb::flat_map(num::be_i32, |num_pairs| {
@@ -2781,50 +2895,56 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                             match_offsets,
                         })
                     },
-                ),
-                opcode if opcode == JavaOpCode::IRETURN => box just!(Ok(JavaOpCode::Ireturn)),
-                opcode if opcode == JavaOpCode::LRETURN => box just!(Ok(JavaOpCode::Lreturn)),
-                opcode if opcode == JavaOpCode::FRETURN => box just!(Ok(JavaOpCode::Freturn)),
-                opcode if opcode == JavaOpCode::DRETURN => box just!(Ok(JavaOpCode::Dreturn)),
-                opcode if opcode == JavaOpCode::ARETURN => box just!(Ok(JavaOpCode::Areturn)),
-                opcode if opcode == JavaOpCode::GETSTATIC => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Getstatic {
-                        field: pool.get_field_ref(index)?,
-                    })
-                }),
-                opcode if opcode == JavaOpCode::GETFIELD => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Getfield {
-                        field: pool.get_field_ref(index)?,
-                    })
-                }),
-                opcode if opcode == JavaOpCode::PUTFIELD => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Putfield {
-                        field: pool.get_field_ref(index)?,
-                    })
-                }),
+                )),
+                opcode if opcode == JavaOpCode::IRETURN => Box::new(just!(Ok(JavaOpCode::Ireturn))),
+                opcode if opcode == JavaOpCode::LRETURN => Box::new(just!(Ok(JavaOpCode::Lreturn))),
+                opcode if opcode == JavaOpCode::FRETURN => Box::new(just!(Ok(JavaOpCode::Freturn))),
+                opcode if opcode == JavaOpCode::DRETURN => Box::new(just!(Ok(JavaOpCode::Dreturn))),
+                opcode if opcode == JavaOpCode::ARETURN => Box::new(just!(Ok(JavaOpCode::Areturn))),
+                opcode if opcode == JavaOpCode::GETSTATIC => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Getstatic {
+                            field: pool.get_field_ref(index)?,
+                        })
+                    }))
+                }
+                opcode if opcode == JavaOpCode::GETFIELD => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Getfield {
+                            field: pool.get_field_ref(index)?,
+                        })
+                    }))
+                }
+                opcode if opcode == JavaOpCode::PUTFIELD => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Putfield {
+                            field: pool.get_field_ref(index)?,
+                        })
+                    }))
+                }
                 opcode if opcode == JavaOpCode::INVOKEVIRTUAL => {
-                    box comb::map(num::be_u16, |index| {
+                    Box::new(comb::map(num::be_u16, |index| {
                         Ok(JavaOpCode::Invokevirtual {
                             method: pool.get_method_ref(index)?,
                         })
-                    })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::INVOKESPECIAL => {
-                    box comb::map(num::be_u16, |index| {
+                    Box::new(comb::map(num::be_u16, |index| {
                         Ok(JavaOpCode::Invokespecial {
                             method: pool.get_method_ref(index)?,
                         })
-                    })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::INVOKESTATIC => {
-                    box comb::map(num::be_u16, |index| {
+                    Box::new(comb::map(num::be_u16, |index| {
                         Ok(JavaOpCode::Invokestatic {
                             method: pool.get_method_ref(index)?,
                         })
-                    })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::INVOKEDYNAMIC => {
-                    box comb::map(
+                    Box::new(comb::map(
                         // Gets a u16 then reads and ignores two zero bytes.
                         sequence::terminated(num::be_u16, bytes::tag(&[0, 0][..])),
                         |index| match pool.get(index)? {
@@ -2838,44 +2958,50 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                             }
                             _ => unimplemented!(),
                         },
-                    )
+                    ))
                 }
-                opcode if opcode == JavaOpCode::NEW => box comb::map(num::be_u16, |index| {
+                opcode if opcode == JavaOpCode::NEW => Box::new(comb::map(num::be_u16, |index| {
                     Ok(JavaOpCode::New {
                         type_name: pool.get_class_name(index)?,
                     })
-                }),
+                })),
                 opcode if opcode == JavaOpCode::NEWARRAY => {
-                    box comb::map(PrimitiveValueType::nom_parse_cf, |r#type| {
+                    Box::new(comb::map(PrimitiveValueType::nom_parse_cf, |r#type| {
                         Ok(JavaOpCode::Newarray { r#type })
-                    })
+                    }))
                 }
-                opcode if opcode == JavaOpCode::ANEWARRAY => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Anewarray {
-                        el_type: pool.get_class_name(index)?,
-                    })
-                }),
+                opcode if opcode == JavaOpCode::ANEWARRAY => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Anewarray {
+                            el_type: pool.get_class_name(index)?,
+                        })
+                    }))
+                }
                 opcode if opcode == JavaOpCode::ARRAYLENGTH => {
-                    box just!(Ok(JavaOpCode::Arraylength))
+                    Box::new(just!(Ok(JavaOpCode::Arraylength)))
                 }
-                opcode if opcode == JavaOpCode::ATHROW => box just!(Ok(JavaOpCode::Athrow)),
-                opcode if opcode == JavaOpCode::CHECKCAST => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Checkcast {
-                        type_name: pool.get_class_name(index)?,
-                    })
-                }),
-                opcode if opcode == JavaOpCode::INSTANCEOF => box comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::Instanceof {
-                        type_name: pool.get_class_name(index)?,
-                    })
-                }),
+                opcode if opcode == JavaOpCode::ATHROW => Box::new(just!(Ok(JavaOpCode::Athrow))),
+                opcode if opcode == JavaOpCode::CHECKCAST => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Checkcast {
+                            type_name: pool.get_class_name(index)?,
+                        })
+                    }))
+                }
+                opcode if opcode == JavaOpCode::INSTANCEOF => {
+                    Box::new(comb::map(num::be_u16, |index| {
+                        Ok(JavaOpCode::Instanceof {
+                            type_name: pool.get_class_name(index)?,
+                        })
+                    }))
+                }
                 opcode if opcode == JavaOpCode::MONITORENTER => {
-                    box just!(Ok(JavaOpCode::Monitorenter))
+                    Box::new(just!(Ok(JavaOpCode::Monitorenter)))
                 }
                 opcode if opcode == JavaOpCode::MONITOREXIT => {
-                    box just!(Ok(JavaOpCode::Monitorexit))
+                    Box::new(just!(Ok(JavaOpCode::Monitorexit)))
                 }
-                opcode if opcode == JavaOpCode::MULTIANEWARRAY => box comb::map(
+                opcode if opcode == JavaOpCode::MULTIANEWARRAY => Box::new(comb::map(
                     sequence::pair(num::be_i16, num::be_u8),
                     |(index, dimensions)| {
                         if dimensions == 0 {
@@ -2884,18 +3010,26 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                             Ok(JavaOpCode::Multianewarray { index, dimensions })
                         }
                     },
-                ),
+                )),
                 opcode if opcode == JavaOpCode::IFNULL => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifnull { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifnull { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::IFNONNULL => {
-                    box comb::map(num::be_i16, |offset| Ok(JavaOpCode::Ifnonnull { offset }))
+                    Box::new(comb::map(num::be_i16, |offset| {
+                        Ok(JavaOpCode::Ifnonnull { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::GOTO_W => {
-                    box comb::map(num::be_i32, |offset| Ok(JavaOpCode::GotoW { offset }))
+                    Box::new(comb::map(num::be_i32, |offset| {
+                        Ok(JavaOpCode::GotoW { offset })
+                    }))
                 }
                 opcode if opcode == JavaOpCode::JSR_W => {
-                    box comb::map(num::be_i32, |offset| Ok(JavaOpCode::JsrW { offset }))
+                    Box::new(comb::map(num::be_i32, |offset| {
+                        Ok(JavaOpCode::JsrW { offset })
+                    }))
                 }
                 opcode => unimplemented!("JavaOpCode::nom_parse: opcode == 0x{:2X}", opcode),
             };
@@ -2947,7 +3081,7 @@ impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
     fn nom_parse(env: Self::Env, mut s: Self::Input) -> IResult<Self::Input, Self::Output> {
         let mut ret = Self::default();
         loop {
-            match JavaOpCode::nom_parse((ret.len(), env), s.clone()) {
+            match JavaOpCode::nom_parse((ret.len(), env), s) {
                 Ok((rest, opcode)) => {
                     if rest == s {
                         return Err(Err::Error(<_ as ParseError<_>>::from_error_kind(
@@ -2957,7 +3091,7 @@ impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
                     }
                     match opcode {
                         Ok(opcode) => ret.add_instruction(opcode),
-                        Err(e) => return Ok((s, Err(e.into()))),
+                        Err(e) => return Ok((s, Err(e))),
                     }
                     s = rest;
                 }
@@ -3346,7 +3480,7 @@ impl PackageName {
 
     /// Check whether `self` is the default package.
     pub fn is_default_package(&self) -> bool {
-        self.sections().len() == 0
+        self.sections().is_empty()
     }
 
     /// Convert `self` to the form used in Java class files.
@@ -3715,5 +3849,25 @@ impl ClassFileVersion {
     /// Get the minor version number.
     pub const fn minor_version(&self) -> u16 {
         self.1
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::io;
+
+    use crate::NomFlatError;
+
+    #[test]
+    fn parses_aaload() -> Result<(), io::Error> {
+        let src = [JavaOpCode::AALOAD];
+        let expected = JavaOpCode::Aaload;
+        let result = JavaOpCode::nom_parse((0, &Default::default()), &src[..])
+            .map_err(NomFlatError::from)
+            .map_err(crate::mk_io_error)?;
+        assert_eq!(expected, result.1.map_err(crate::mk_io_error)?);
+        Ok(())
     }
 }

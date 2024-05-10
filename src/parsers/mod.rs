@@ -39,6 +39,9 @@ macro_rules! just {
     };
 }
 
+/// 2018 edition: make `just` an item that can be imported in other modules in the crate
+pub(crate) use just;
+
 pub fn unwrap<E, F, I, O>(parser: F) -> impl Parser<I, O, E>
 where
     E: ParseError<I>,

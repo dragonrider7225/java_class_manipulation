@@ -1,6 +1,9 @@
 use extended_io as eio;
 
-use std::{convert::TryInto, io::{self, Write}};
+use std::{
+    convert::TryInto,
+    io::{self, Write},
+};
 
 use crate::CrateResult;
 
@@ -31,6 +34,10 @@ impl RawAttribute {
             | RawAttribute::Code { name_idx, .. }
             | RawAttribute::GenericAttribute { name_idx, .. } => *name_idx,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn len(&self) -> usize {

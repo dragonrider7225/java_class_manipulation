@@ -38,7 +38,7 @@ impl QualifiedClassName {
     }
 
     fn class_array(el_type: QualifiedClassName) -> QualifiedClassName {
-        QualifiedClassName::Array(Either::Right(box el_type))
+        QualifiedClassName::Array(Either::Right(Box::new(el_type)))
     }
 
     pub(crate) fn from_full_str(s: &str) -> Result<QualifiedClassName, NomBaseErr<&str>> {
@@ -69,6 +69,7 @@ impl QualifiedClassName {
         }
     }
 
+    #[expect(dead_code)]
     pub(crate) fn to_source_form(&self) -> String {
         match self {
             QualifiedClassName::ClassFile(package, ucn) => {
@@ -79,7 +80,7 @@ impl QualifiedClassName {
                 }
             }
             QualifiedClassName::Array(Either::Left(primitive)) => {
-                format!("{}[]", primitive._to_source_form())
+                format!("{}[]", primitive.to_source_form())
             }
             QualifiedClassName::Array(Either::Right(box qcn)) => {
                 format!("{}[]", qcn.to_source_form())
@@ -105,7 +106,9 @@ impl<'i> NomParse<(), &'i str> for QualifiedClassName {
                 sequence::preceded(
                     bytes::tag("["),
                     branch::alt((
-                        comb::map(QualifiedClassName::nom_parse_cf, |x| Either::Right(box x)),
+                        comb::map(QualifiedClassName::nom_parse_cf, |x| {
+                            Either::Right(Box::new(x))
+                        }),
                         comb::map(PrimitiveValueType::nom_parse_cf, Either::Left),
                     )),
                 ),
@@ -140,7 +143,7 @@ pub enum PrimitiveValueType {
 }
 
 impl PrimitiveValueType {
-    pub(crate) fn to_internal_form(&self) -> String {
+    pub(crate) fn to_internal_form(self) -> String {
         match self {
             Self::Bool => String::from("Z"),
             Self::Char => String::from("C"),
@@ -153,7 +156,7 @@ impl PrimitiveValueType {
         }
     }
 
-    pub(crate) fn _to_source_form(&self) -> String {
+    pub(crate) fn to_source_form(self) -> String {
         match self {
             Self::Bool => String::from("boolean"),
             Self::Char => String::from("char"),
@@ -199,17 +202,18 @@ pub enum JavaPrimitive {
 }
 
 impl JavaPrimitive {
-    pub(crate) fn to_internal_form(&self) -> String {
+    pub(crate) fn to_internal_form(self) -> String {
         match self {
             Self::Void => String::from("V"),
             Self::ValueType(v) => v.to_internal_form(),
         }
     }
 
-    pub(crate) fn _to_source_form(&self) -> String {
+    #[expect(dead_code, reason = "Print source code not yet implemented")]
+    pub(crate) fn to_source_form(self) -> String {
         match self {
             Self::Void => String::from("void"),
-            Self::ValueType(v) => v._to_source_form(),
+            Self::ValueType(v) => v.to_source_form(),
         }
     }
 }
@@ -334,7 +338,7 @@ impl JavaType {
             Self::Class(el_type) => Some(QualifiedClassName::class_array(el_type)),
             Self::Method { .. } => None,
         };
-        ret.map(|x| Self::Class(x))
+        ret.map(Self::Class)
     }
 
     /// Returns None if any element of `arg_types` is void or a function type or if `ret_type` is a
@@ -349,8 +353,8 @@ impl JavaType {
             None
         } else {
             Some(Self::Method {
-                arg_types: box arg_types,
-                ret_type: box ret_type,
+                arg_types: Box::new(arg_types),
+                ret_type: Box::new(ret_type),
             })
         }
     }
@@ -374,32 +378,22 @@ impl JavaType {
         )
     }
 
-    fn _is_primitive(&self) -> bool {
-        match self {
-            Self::Primitive(_) => true,
-            _ => false,
-        }
+    #[expect(dead_code)]
+    fn is_primitive(&self) -> bool {
+        matches!(self, Self::Primitive(_))
     }
 
     fn is_void(&self) -> bool {
-        match self {
-            Self::Primitive(JavaPrimitive::Void) => true,
-            _ => false,
-        }
+        matches!(self, Self::Primitive(JavaPrimitive::Void))
     }
 
-    fn _is_class(&self) -> bool {
-        match self {
-            Self::Class(_) => true,
-            _ => false,
-        }
+    #[expect(dead_code)]
+    fn is_class(&self) -> bool {
+        matches!(self, Self::Class(_))
     }
 
     fn is_func(&self) -> bool {
-        match self {
-            Self::Method { .. } => true,
-            _ => false,
-        }
+        matches!(self, Self::Method { .. })
     }
 
     pub(crate) fn to_internal_form(&self) -> String {
@@ -456,3 +450,185 @@ impl_from_str_for_nom_parse_cf!(JavaType);
 //         Ok(Self::nom_parse_full(AvailableTypes::All, s)?)
 //     }
 // }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parser_fails_on_empty() {
+        assert!("".parse::<JavaType>().is_err());
+    }
+
+    #[test]
+    fn parses_byte() {
+        let src = "B";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Byte,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_char() {
+        let src = "C";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Char,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_double() {
+        let src = "D";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Double,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_float() {
+        let src = "F";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Float,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_int() {
+        let src = "I";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Int,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_long() {
+        let src = "J";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Long,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_class_name_default_package() {
+        let src = "LClass;";
+        let expected = Ok(JavaType::Class(QualifiedClassName::ClassFile(
+            PackageName::DEFAULT_PACKAGE,
+            JavaIdentifier::new("Class").unwrap(),
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[allow(non_snake_case, reason = "java.lang.Object is case-sensitive")]
+    #[test]
+    fn parses_class_name_Object() {
+        let src = "Ljava/lang/Object;";
+        let expected = Ok(JavaType::Class(QualifiedClassName::ClassFile(
+            PackageName::new(vec![
+                JavaIdentifier::new("java").unwrap(),
+                JavaIdentifier::new("lang").unwrap(),
+            ]),
+            JavaIdentifier::new("Object").unwrap(),
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_short() {
+        let src = "S";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Short,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_bool() {
+        let src = "Z";
+        let expected = Ok(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Bool,
+        )));
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_array_int() {
+        let src = "[I";
+        let expected = JavaType::mk_array(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Int,
+        )))
+        .ok_or_else(Default::default);
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_array_array_bool() {
+        let src = "[[Z";
+        let bool_array = JavaType::mk_array(JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Bool,
+        )))
+        .unwrap();
+        let expected = JavaType::mk_array(bool_array).ok_or_else(Default::default);
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_func_thunk() {
+        let src = "()V";
+        let expected = JavaType::mk_method(vec![], JavaType::Primitive(JavaPrimitive::Void))
+            .ok_or_else(Default::default);
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn parses_func_int_void() {
+        let src = "(I)V";
+        let arg_types = vec![JavaType::Primitive(JavaPrimitive::ValueType(
+            PrimitiveValueType::Int,
+        ))];
+        let expected = JavaType::mk_method(arg_types, JavaType::Primitive(JavaPrimitive::Void))
+            .ok_or_else(Default::default);
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[allow(non_snake_case, reason = "java.lang.Object is case-sensitive")]
+    #[test]
+    fn parses_func_array_int_int_Object() {
+        let src = "([II)Ljava/lang/Object;";
+        let arg_types = vec![
+            JavaType::Class(QualifiedClassName::Array(Either::Left(
+                PrimitiveValueType::Int,
+            ))),
+            JavaType::Primitive(JavaPrimitive::ValueType(PrimitiveValueType::Int)),
+        ];
+        let ret_type = JavaType::Class(QualifiedClassName::ClassFile(
+            PackageName::new(vec![
+                JavaIdentifier::new("java").unwrap(),
+                JavaIdentifier::new("lang").unwrap(),
+            ]),
+            JavaIdentifier::new("Object").unwrap(),
+        ));
+        let expected = JavaType::mk_method(arg_types, ret_type).ok_or_else(Default::default);
+        let result = src.parse();
+        assert_eq!(expected, result);
+    }
+}
