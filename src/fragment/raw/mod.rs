@@ -7,6 +7,8 @@ use std::{
 
 use crate::CrateResult;
 
+use super::stack_frame::{RawStackMapFrame, WritableFrame as _};
+
 #[derive(Debug)]
 pub enum RawAttribute {
     ConstantValue {
@@ -21,6 +23,10 @@ pub enum RawAttribute {
         exception_handlers: Vec<RawExceptionHandler>,
         attributes: Vec<RawAttribute>,
     },
+    StackMapTable {
+        name_idx: u16,
+        entries: Vec<RawStackMapFrame>,
+    },
     GenericAttribute {
         name_idx: u16,
         info: Vec<u8>,
@@ -29,10 +35,11 @@ pub enum RawAttribute {
 
 impl RawAttribute {
     pub fn name_idx(&self) -> u16 {
-        match self {
-            RawAttribute::ConstantValue { name_idx, .. }
-            | RawAttribute::Code { name_idx, .. }
-            | RawAttribute::GenericAttribute { name_idx, .. } => *name_idx,
+        match *self {
+            Self::ConstantValue { name_idx, .. }
+            | Self::Code { name_idx, .. }
+            | Self::StackMapTable { name_idx, .. }
+            | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
 
@@ -57,6 +64,9 @@ impl RawAttribute {
                     + 2
                     + attributes.iter().map(RawAttribute::len).sum::<usize>()
             }
+            Self::StackMapTable { entries, .. } => {
+                2 + entries.iter().map(|entry| entry.len()).sum::<usize>()
+            }
             RawAttribute::GenericAttribute { info, .. } => info.len(),
         }
     }
@@ -65,8 +75,8 @@ impl RawAttribute {
         eio::write_u16(sink, self.name_idx())?;
         eio::write_u32(sink, self.len().try_into()?)?;
         match self {
-            RawAttribute::ConstantValue { value_idx, .. } => eio::write_u16(sink, value_idx)?,
-            RawAttribute::Code {
+            Self::ConstantValue { value_idx, .. } => eio::write_u16(sink, value_idx)?,
+            Self::Code {
                 max_stack,
                 max_locals,
                 body,
@@ -79,15 +89,21 @@ impl RawAttribute {
                 eio::write_u32(sink, body.len().try_into()?)?;
                 eio::write_byte_slice(sink, &body)?;
                 eio::write_u16(sink, exception_handlers.len().try_into()?)?;
-                for exception_handler in exception_handlers {
-                    exception_handler.write(sink)?;
-                }
+                exception_handlers
+                    .into_iter()
+                    .try_for_each(|handler| handler.write(sink))?;
                 eio::write_u16(sink, attributes.len().try_into()?)?;
-                for attribute in attributes {
-                    attribute.write(sink)?;
-                }
+                attributes
+                    .into_iter()
+                    .try_for_each(|attr| attr.write(sink))?;
             }
-            RawAttribute::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
+            Self::StackMapTable { entries, .. } => {
+                eio::write_u16(sink, u16::try_from(entries.len())?)?;
+                entries
+                    .into_iter()
+                    .try_for_each(|frame| frame.write(sink))?;
+            }
+            Self::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
         }
         Ok(())
     }

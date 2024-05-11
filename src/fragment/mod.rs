@@ -15,7 +15,7 @@ use std::{
     borrow::Borrow,
     collections::HashMap,
     fmt::{self, Debug, Display, Formatter},
-    io::Read,
+    io::{self, Read},
     mem, slice,
 };
 
@@ -29,6 +29,9 @@ pub mod constant_pool;
 use constant_pool::{CPAccessError, CPAccessResult, CPEntry};
 
 pub mod raw;
+
+pub mod stack_frame;
+use stack_frame::StackMapFrame;
 
 pub use constant_pool::ConstantPool;
 pub use raw::{RawAttribute, RawExceptionHandler, RawField, RawMethod};
@@ -58,11 +61,15 @@ pub struct ExceptionHandler {
 }
 
 impl ExceptionHandler {
-    fn read(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<ExceptionHandler> {
-        let start_pc = eio::read_u16(src)?;
-        let end_pc = eio::read_u16(src)?;
-        let handler_pc = eio::read_u16(src)?;
-        let catch_type_idx = eio::read_u16(src)?;
+    fn read(
+        src: &mut dyn Read,
+        pool: &ConstantPool,
+        counter: &mut usize,
+    ) -> CrateResult<ExceptionHandler> {
+        let start_pc = read_u16(src, counter)?;
+        let end_pc = read_u16(src, counter)?;
+        let handler_pc = read_u16(src, counter)?;
+        let catch_type_idx = read_u16(src, counter)?;
 
         let catch_type = match catch_type_idx {
             0 => Either::Right(()),
@@ -97,13 +104,12 @@ impl ExceptionHandler {
 pub fn read_exception_handlers(
     src: &mut dyn Read,
     pool: &ConstantPool,
+    counter: &mut usize,
 ) -> CrateResult<Vec<ExceptionHandler>> {
-    let count = eio::read_u16(src)?;
-    let mut ret = Vec::new();
-    for _ in 0..count {
-        ret.push(ExceptionHandler::read(src, pool)?);
-    }
-    Ok(ret)
+    let count = read_u16(src, counter)?;
+    (0..count)
+        .map(|_| ExceptionHandler::read(src, pool, counter))
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3130,6 +3136,7 @@ pub enum JavaAttribute {
         /// The attributes of the method body.
         attributes: Vec<JavaAttribute>,
     },
+    StackMapTable(Vec<StackMapFrame>),
     /// An attribute that does not fall into any of the other categories.
     GenericAttribute {
         /// The name of the attribute.
@@ -3140,16 +3147,23 @@ pub enum JavaAttribute {
 }
 
 impl JavaAttribute {
+    /// The name of the ConstantValue attribute.
     const CONSTANT_VALUE_NAME: &'static str = "ConstantValue";
+    /// The name of the Code attribute.
     const CODE_NAME: &'static str = "Code";
+    /// The name of the StackMapTable attribute.
     const STACK_MAP_TABLE_NAME: &'static str = "StackMapTable";
 
-    fn read(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<JavaAttribute> {
-        let name_idx = eio::read_u16(src)?;
+    /// Reads a single attribute from the byte source `src`.
+    fn read(
+        src: &mut dyn Read,
+        pool: &ConstantPool,
+        counter: &mut usize,
+    ) -> CrateResult<JavaAttribute> {
+        let name_idx = read_u16(src, counter)?;
         match pool.get_utf8(name_idx)? {
-            // TODO: implement specializations for known attribute types
             name if name == JavaAttribute::CONSTANT_VALUE_NAME => {
-                match eio::read_u32(src)? {
+                match read_u32(src, counter)? {
                     2 => {}
                     len => {
                         return Err(ClassParseError::InvalidAttributeLength {
@@ -3158,19 +3172,23 @@ impl JavaAttribute {
                         })?
                     }
                 }
-                match pool.get(eio::read_u16(src)?)? {
-                    CPEntry::Integer(i) => Ok(JavaAttribute::ConstantInt(*i)),
-                    CPEntry::Float(f) => Ok(JavaAttribute::ConstantFloat(*f)),
-                    CPEntry::Long(l) => Ok(JavaAttribute::ConstantLong(*l)),
-                    CPEntry::Double(d) => Ok(JavaAttribute::ConstantDouble(*d)),
+                let attr = match pool.get(read_u16(src, counter)?)? {
+                    CPEntry::Integer(i) => JavaAttribute::ConstantInt(*i),
+                    CPEntry::Float(f) => JavaAttribute::ConstantFloat(*f),
+                    CPEntry::Long(l) => JavaAttribute::ConstantLong(*l),
+                    CPEntry::Double(d) => JavaAttribute::ConstantDouble(*d),
                     CPEntry::String(idx) => {
-                        Ok(JavaAttribute::ConstantString(pool.get_owned_string(*idx)?))
+                        JavaAttribute::ConstantString(pool.get_owned_string(*idx)?)
                     }
-                    entry => Ok(Err(ClassParseError::InvalidAttributeValue {
-                        name: name.to_string(),
-                        value: entry.to_string(pool)?,
-                    })?),
-                }
+                    entry => {
+                        return Err(ClassParseError::InvalidAttributeValue {
+                            name: name.to_string(),
+                            value: entry.to_string(pool)?,
+                        }
+                        .into())
+                    }
+                };
+                Ok(attr)
             }
             name if name == JavaAttribute::CODE_NAME => {
                 // Structure:
@@ -3187,15 +3205,16 @@ impl JavaAttribute {
                 //     // Must include "StackMapTable" attribute.
                 //     attributes: [JavaAttribute; attributes_count],
                 // }
-                // TODO: validate value_length
-                let _ = eio::read_u32(src)?;
-                let max_stack = eio::read_u16(src)?;
-                let max_locals = eio::read_u16(src)?;
-                let code_len = eio::read_u32(src)?;
-                let code = eio::read_bytes(src, code_len.into())?;
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let max_stack = read_u16(src, counter)?;
+                let max_locals = read_u16(src, counter)?;
+                let code_len = read_u32(src, counter)?;
+                let code = read_bytes(src, code_len.into(), counter)?;
                 let body = JavaFunctionBody::parse(&code, pool)?;
-                let exception_handlers = read_exception_handlers(src, pool)?;
-                let attributes = read_attributes(src, pool)?;
+                let exception_handlers = read_exception_handlers(src, pool, counter)?;
+                let attributes = read_attributes(src, pool, counter)?;
+                debug_assert_eq!(*counter - counter_base, value_length);
                 let ret = JavaAttribute::Code {
                     max_stack,
                     max_locals,
@@ -3206,18 +3225,37 @@ impl JavaAttribute {
                 Ok(ret)
             }
             name if name == JavaAttribute::STACK_MAP_TABLE_NAME => {
-                unimplemented!("Attribute::StackMapTable")
+                // Structure:
+                // {
+                //     name_idx: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     entry_count: u16,
+                //     entries: [StackMapFrame; entry_count],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let entry_count = read_u16(src, counter)?;
+                let entries = (0..entry_count)
+                    .map(|_| StackMapFrame::read(src, pool, counter))
+                    .collect::<CrateResult<_>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::StackMapTable(entries))
             }
+            "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
+            "NestHost" => unimplemented!("Attribute::NestHost"),
+            "NestMembers" => unimplemented!("Attribute::NestMembers"),
+            "PermittedSubclasses" => unimplemented!("Attribute::PermittedSubclasses"),
             "Exceptions" => unimplemented!("Attribute::Exceptions"),
             "InnerClasses" => unimplemented!("Attribute::InnerClasses"),
             "EnclosingMethod" => unimplemented!("Attribute::EnclosingMethod"),
             "Synthetic" => unimplemented!("Attribute::Synthetic"),
             "Signature" => unimplemented!("Attribute::Signature"),
+            "Record" => unimplemented!("Attribute::Record"),
             "SourceFile" => unimplemented!("Attribute::SourceFile"),
-            "SourceDebugExtension" => unimplemented!("Attribute::SourceDebugExtension"),
             "LineNumberTable" => unimplemented!("Attribute::LineNumberTable"),
             "LocalVariableTable" => unimplemented!("Attribute::LocalVariableTable"),
             "LocalVariableTypeTable" => unimplemented!("Attribute::LocalVariableTypeTable"),
+            "SourceDebugExtension" => unimplemented!("Attribute::SourceDebugExtension"),
             "Deprecated" => unimplemented!("Attribute::Deprecated"),
             "RuntimeVisibleAnnotations" => unimplemented!("Attribute::RuntimeVisibleAnnotations"),
             "RuntimeInvisibleAnnotations" => {
@@ -3229,8 +3267,17 @@ impl JavaAttribute {
             "RuntimeInvisibleParameterAnnotations" => {
                 unimplemented!("Attribute::RuntimeInvisibleParameterAnnotations")
             }
+            "RuntimeVisibleTypeAnnotations" => {
+                unimplemented!("Attribute::RuntimeVisibleTypeAnnotations")
+            }
+            "RuntimeInvisibleTypeAnnotations" => {
+                unimplemented!("Attribute::RuntimeInvisibleTypeAnnotations")
+            }
             "AnnotationDefault" => unimplemented!("Attribute::AnnotationDefault"),
-            "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
+            "MethodParameters" => unimplemented!("Attribute::MethodParameters"),
+            "Module" => unimplemented!("Attribute::Module"),
+            "ModulePackages" => unimplemented!("Attribute::ModulePackages"),
+            "ModuleMainClass" => unimplemented!("Attribute::ModuleMainClass"),
             name => {
                 let name = name.to_string();
                 let info_length = eio::read_u32(src)?.into();
@@ -3249,25 +3296,13 @@ impl JavaAttribute {
             | JavaAttribute::ConstantInt(_)
             | JavaAttribute::ConstantString(_) => JavaAttribute::CONSTANT_VALUE_NAME,
             JavaAttribute::Code { .. } => JavaAttribute::CODE_NAME,
+            JavaAttribute::StackMapTable(_) => JavaAttribute::STACK_MAP_TABLE_NAME,
             JavaAttribute::GenericAttribute { name, .. } => name.as_ref(),
         }
     }
 
-    /// Get the actual bytes that represent the attribute in a class file.
-    pub fn info_bytes(&self) -> &[u8] {
-        match self {
-            JavaAttribute::ConstantLong(l) => as_bytes(l),
-            JavaAttribute::ConstantFloat(f) => as_bytes(f),
-            JavaAttribute::ConstantDouble(d) => as_bytes(d),
-            JavaAttribute::ConstantInt(i) => as_bytes(i),
-            JavaAttribute::ConstantString(s) => s.as_bytes(),
-            JavaAttribute::Code { .. } => unimplemented!(),
-            JavaAttribute::GenericAttribute { info, .. } => &info[..],
-        }
-    }
-
     /// Convert `self` into a form that can be directly written into a Java class file.
-    pub fn into_raw(self, pool: &mut ConstantPool) -> CPAccessResult<RawAttribute> {
+    pub fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawAttribute> {
         match self {
             JavaAttribute::ConstantLong(l) => {
                 let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
@@ -3335,6 +3370,14 @@ impl JavaAttribute {
                     attributes,
                 })
             }
+            JavaAttribute::StackMapTable(smt) => {
+                let name_idx = pool.add_utf8(JavaAttribute::STACK_MAP_TABLE_NAME.to_string())?;
+                let entries = smt
+                    .into_iter()
+                    .map(|frame| frame.into_raw(pool))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::StackMapTable { name_idx, entries })
+            }
             JavaAttribute::GenericAttribute { name, info } => {
                 let name_idx = pool.add_utf8(name)?;
                 Ok(RawAttribute::GenericAttribute { name_idx, info })
@@ -3344,13 +3387,15 @@ impl JavaAttribute {
 }
 
 /// Read the attribute block for an element of a Java class file.
-pub fn read_attributes(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<Vec<JavaAttribute>> {
-    let num_attributes = eio::read_u16(src)?;
-    let mut ret = Vec::with_capacity(num_attributes.into());
-    for _ in 0..num_attributes {
-        ret.push(JavaAttribute::read(src, pool)?);
-    }
-    Ok(ret)
+pub fn read_attributes(
+    src: &mut dyn Read,
+    pool: &ConstantPool,
+    counter: &mut usize,
+) -> CrateResult<Vec<JavaAttribute>> {
+    let num_attributes = read_u16(src, counter)?;
+    (0..num_attributes)
+        .map(|_| JavaAttribute::read(src, pool, counter))
+        .collect()
 }
 
 /// A valid Java name. From [JLS7
@@ -3535,7 +3580,7 @@ impl JavaField {
         let descriptor_idx = eio::read_u16(src)?;
         let r#type = pool.get_type(descriptor_idx)?;
 
-        let attributes = read_attributes(src, pool)?;
+        let attributes = read_attributes(src, pool, &mut 0)?;
 
         match JavaField::new(access_flags, name, r#type, attributes) {
             Some(f) => Ok(f),
@@ -3579,7 +3624,7 @@ impl JavaField {
     }
 
     /// Convert `self` into a form that can be directly written into a Java class file.
-    pub fn into_raw(self, pool: &mut ConstantPool) -> CPAccessResult<RawField> {
+    pub fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawField> {
         let access_flags = self.access_flags;
         let name_idx = pool.add_utf8(self.name)?;
         let type_idx = pool.add_type(self.r#type)?;
@@ -3587,7 +3632,7 @@ impl JavaField {
             .attributes
             .into_iter()
             .map(|attribute| attribute.into_raw(pool))
-            .collect::<Result<_, _>>()?;
+            .collect::<CrateResult<_>>()?;
         Ok(RawField {
             access_flags,
             name_idx,
@@ -3710,7 +3755,7 @@ impl JavaMethod {
         let name = pool.get_utf8(eio::read_u16(src)?)?.to_string();
         // TODO: implement check that `type` is a function type
         let r#type = pool.get_type(eio::read_u16(src)?)?;
-        let attributes = read_attributes(src, pool)?;
+        let attributes = read_attributes(src, pool, &mut 0)?;
         Ok(JavaMethod {
             access_flags,
             name,
@@ -3735,7 +3780,7 @@ impl JavaMethod {
     }
 
     /// Convert `self` into a structure that can be directly written into a Java class file.
-    pub fn into_raw(self, pool: &mut ConstantPool) -> CPAccessResult<RawMethod> {
+    pub fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawMethod> {
         let access_flags = self.access_flags;
         let name_idx = pool.add_utf8(self.name)?;
         let type_idx = pool.add_type(self.r#type)?;
@@ -3743,7 +3788,7 @@ impl JavaMethod {
             .attributes
             .into_iter()
             .map(|attribute| attribute.into_raw(pool))
-            .collect::<Result<_, _>>()?;
+            .collect::<CrateResult<_>>()?;
         Ok(RawMethod {
             access_flags,
             name_idx,
@@ -3850,6 +3895,30 @@ impl ClassFileVersion {
     pub const fn minor_version(&self) -> u16 {
         self.1
     }
+}
+
+fn read_u8(source: &mut dyn Read, counter: &mut usize) -> io::Result<u8> {
+    let res = eio::read_u8(source)?;
+    *counter += 1;
+    Ok(res)
+}
+
+fn read_u16(source: &mut dyn Read, counter: &mut usize) -> io::Result<u16> {
+    let res = eio::read_u16(source)?;
+    *counter += 2;
+    Ok(res)
+}
+
+fn read_u32(source: &mut dyn Read, counter: &mut usize) -> io::Result<u32> {
+    let res = eio::read_u32(source)?;
+    *counter += 4;
+    Ok(res)
+}
+
+fn read_bytes(source: &mut dyn Read, length: u64, counter: &mut usize) -> io::Result<Vec<u8>> {
+    let res = eio::read_bytes(source, length)?;
+    *counter += res.len();
+    Ok(res)
 }
 
 #[cfg(test)]

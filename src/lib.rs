@@ -640,7 +640,7 @@ impl JavaClass {
         let interfaces = read_interfaces(src, &constant_pool)?;
         let fields = fragment::read_fields(src, &constant_pool)?;
         let methods = fragment::read_methods(src, &constant_pool)?;
-        let attributes = fragment::read_attributes(src, &constant_pool)?;
+        let attributes = fragment::read_attributes(src, &constant_pool, &mut 0)?;
         let ret = JavaClass::new(
             version,
             access_flags,
