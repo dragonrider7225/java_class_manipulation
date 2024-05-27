@@ -27,8 +27,8 @@ pub mod types;
 
 use fragment::{
     constant_pool::{CPAccessError, ConstantPool},
-    ClassFileVersion, JavaAttribute, JavaField, JavaIdentifier, JavaMethod, RawAttribute, RawField,
-    RawMethod,
+    raw::{RawAttribute, RawField, RawMethod},
+    ClassFileVersion, JavaAttribute, JavaField, JavaIdentifier, JavaMethod,
 };
 
 use parsers::{jvm8, NomFlatError};

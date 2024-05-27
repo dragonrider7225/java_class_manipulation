@@ -27,6 +27,71 @@ pub enum RawAttribute {
         name_idx: u16,
         entries: Vec<RawStackMapFrame>,
     },
+    /// The list of exceptions that explicitly may be thrown by the function.
+    Exceptions {
+        /// The index of the attribute name "Exceptions" in the constant pool.
+        name_idx: u16,
+        /// The indices of the exception class names in the constant pool.
+        exception_indices: Vec<u16>,
+    },
+    /// The list of non-package classes referred to by or contained in the class.
+    InnerClasses {
+        /// The index of the attribute name "InnerClasses" in the constant pool.
+        name_idx: u16,
+        /// The entries in the list of class descriptions.
+        classes_info: Vec<RawInnerClassInfo>,
+    },
+    /// A description of the location of this local or anonymous class.
+    EnclosingMethod {
+        /// The index of the attribute name "EnclosingMethod" in the constant pool.
+        name_idx: u16,
+        /// The index in the constant pool of the class where this local or anonymous class was
+        /// defined.
+        class_idx: u16,
+        /// The index in the constant pool of the name and type of the method where this local or
+        /// anonymous class was defined, if applicable.
+        method_idx: u16,
+    },
+    /// An alternative to the synthetic flag on classes, methods, and fields.
+    Synthetic(u16),
+    /// A non-erased generic type signature.
+    Signature {
+        /// The index of the attribute name "Signature" in the constant pool.
+        name_idx: u16,
+        /// The index of the type signature in the constant pool.
+        signature_idx: u16,
+    },
+    /// The filename of the file that this class was compiled from.
+    SourceFile {
+        /// The index of the attribute name "SourceFile" in the constant pool.
+        name_idx: u16,
+        /// The index of the source file name in the constant pool.
+        source_file_idx: u16,
+    },
+    /// Extra debug information.
+    SourceDebugExtension {
+        /// The index of the attribute name "SourceDebugExtension" in the constant pool.
+        name_idx: u16,
+        /// The number of bytes in the JVM-8 representation of `value`.
+        jvm8_len: u32,
+        /// The debug information.
+        value: String,
+    },
+    /// Debug information about where in the `Code` attribute the line number of the original
+    /// source code changes.
+    LineNumberTable {
+        /// The index of the attribute name "LineNumberTable" in the constant pool.
+        name_idx: u16,
+        /// The debug information.
+        table: Vec<super::LineNumber>,
+    },
+    /// Debug information about local variables for a `Code` attribute.
+    LocalVariableTable {
+        /// The index of the attribute name "LocalVariableTable" in the constant pool.
+        name_idx: u16,
+        /// The debug information.
+        table: Vec<RawLocalVariable>,
+    },
     GenericAttribute {
         name_idx: u16,
         info: Vec<u8>,
@@ -34,23 +99,32 @@ pub enum RawAttribute {
 }
 
 impl RawAttribute {
+    /// The index into the constant pool of this attribute's name.
     pub fn name_idx(&self) -> u16 {
         match *self {
             Self::ConstantValue { name_idx, .. }
             | Self::Code { name_idx, .. }
             | Self::StackMapTable { name_idx, .. }
+            | Self::Exceptions { name_idx, .. }
+            | Self::InnerClasses { name_idx, .. }
+            | Self::EnclosingMethod { name_idx, .. }
+            | Self::Synthetic(name_idx)
+            | Self::Signature { name_idx, .. }
+            | Self::SourceFile { name_idx, .. }
+            | Self::SourceDebugExtension { name_idx, .. }
+            | Self::LineNumberTable { name_idx, .. }
+            | Self::LocalVariableTable { name_idx, .. }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
+    /// The number of bytes that would be written by a successful call to [`write()`] minus the six
+    /// bytes used for `attribute_name_index` and `attribute_length`.
+    #[allow(clippy::len_without_is_empty, reason = "This is not a container type")]
     pub fn len(&self) -> usize {
         match self {
-            RawAttribute::ConstantValue { .. } => 2,
-            RawAttribute::Code {
+            Self::ConstantValue { .. } => 2,
+            Self::Code {
                 body,
                 exception_handlers,
                 attributes,
@@ -67,10 +141,22 @@ impl RawAttribute {
             Self::StackMapTable { entries, .. } => {
                 2 + entries.iter().map(|entry| entry.len()).sum::<usize>()
             }
-            RawAttribute::GenericAttribute { info, .. } => info.len(),
+            Self::Exceptions {
+                exception_indices, ..
+            } => 2 + exception_indices.len() * 2,
+            Self::InnerClasses { classes_info, .. } => 2 + classes_info.len() * 8,
+            Self::EnclosingMethod { .. } => 2 + 2,
+            Self::Synthetic(_) => 0,
+            Self::Signature { .. } => 2,
+            Self::SourceFile { .. } => 2,
+            Self::SourceDebugExtension { jvm8_len, .. } => usize::try_from(*jvm8_len).unwrap(),
+            Self::LineNumberTable { table, .. } => 2 + table.len() * 4,
+            Self::LocalVariableTable { table, .. } => 2 + table.len() * 10,
+            Self::GenericAttribute { info, .. } => info.len(),
         }
     }
 
+    /// Writes the attribute to `sink`.
     pub fn write(self, sink: &mut dyn Write) -> CrateResult<()> {
         eio::write_u16(sink, self.name_idx())?;
         eio::write_u32(sink, self.len().try_into()?)?;
@@ -102,6 +188,45 @@ impl RawAttribute {
                 entries
                     .into_iter()
                     .try_for_each(|frame| frame.write(sink))?;
+            }
+            Self::Exceptions {
+                exception_indices, ..
+            } => {
+                eio::write_u16(sink, u16::try_from(exception_indices.len())?)?;
+                exception_indices
+                    .into_iter()
+                    .try_for_each(|index| eio::write_u16(sink, index))?;
+            }
+            Self::InnerClasses { classes_info, .. } => {
+                eio::write_u16(sink, u16::try_from(classes_info.len())?)?;
+                classes_info
+                    .into_iter()
+                    .try_for_each(|info| info.write(sink))?;
+            }
+            Self::EnclosingMethod {
+                class_idx,
+                method_idx,
+                ..
+            } => {
+                eio::write_u16(sink, class_idx)?;
+                eio::write_u16(sink, method_idx)?;
+            }
+            Self::Synthetic(_) => {}
+            Self::Signature { signature_idx, .. } => eio::write_u16(sink, signature_idx)?,
+            Self::SourceFile {
+                source_file_idx, ..
+            } => eio::write_u16(sink, source_file_idx)?,
+            Self::SourceDebugExtension { value, .. } => crate::write_jvm8(sink, &value)?,
+            Self::LineNumberTable { table, .. } => {
+                eio::write_u16(sink, u16::try_from(table.len())?)?;
+                table.into_iter().try_for_each(|entry| {
+                    eio::write_u16(sink, entry.start_pc)?;
+                    eio::write_u16(sink, entry.line_number)
+                })?
+            }
+            Self::LocalVariableTable { table, .. } => {
+                eio::write_u16(sink, u16::try_from(table.len())?)?;
+                table.into_iter().try_for_each(|entry| entry.write(sink))?
             }
             Self::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
         }
@@ -174,6 +299,60 @@ impl RawMethod {
         for attribute in self.attributes {
             attribute.write(sink)?;
         }
+        Ok(())
+    }
+}
+
+/// A description of a non-package class C referred to by or contained in another class.
+#[derive(Clone, Copy, Debug)]
+pub struct RawInnerClassInfo {
+    /// The index of the fully-qualified class name of C in the constant pool.
+    pub name_idx: u16,
+    /// The index of the fully-qualified class name of the class that contains C in the constant
+    /// pool.
+    pub container_idx: u16,
+    /// The index of the simple name of C in the constant pool.
+    pub unqualified_name_idx: u16,
+    /// The access flags on the class C.
+    pub access_flags: u16,
+}
+
+impl RawInnerClassInfo {
+    /// Writes the description to `sink`.
+    pub fn write(self, sink: &mut dyn Write) -> CrateResult<()> {
+        eio::write_u16(sink, self.name_idx)?;
+        eio::write_u16(sink, self.container_idx)?;
+        eio::write_u16(sink, self.unqualified_name_idx)?;
+        eio::write_u16(sink, self.access_flags)?;
+        Ok(())
+    }
+}
+
+/// A local variable description in a `LocalVariableTable` attribute.
+#[derive(Clone, Copy, Debug)]
+pub struct RawLocalVariable {
+    /// The index into the `Code` attribute of the first instruction where this local variable must
+    /// have a value.
+    pub start_pc: u16,
+    /// The length of the slice into the `Code` attribute where this local variable must have a
+    /// value.
+    pub code_length: u16,
+    /// The index in the constant pool of the name of the local variable.
+    pub name_idx: u16,
+    /// The index in the constant pool of the type of the local variable.
+    pub type_idx: u16,
+    /// The index of the local variable in the current frame.
+    pub index: u16,
+}
+
+impl RawLocalVariable {
+    /// Write the local variable to a class file.
+    fn write(self, sink: &mut dyn Write) -> CrateResult<()> {
+        eio::write_u16(sink, self.start_pc)?;
+        eio::write_u16(sink, self.code_length)?;
+        eio::write_u16(sink, self.name_idx)?;
+        eio::write_u16(sink, self.type_idx)?;
+        eio::write_u16(sink, self.index)?;
         Ok(())
     }
 }

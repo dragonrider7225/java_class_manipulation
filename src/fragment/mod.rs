@@ -26,15 +26,16 @@ use crate::{
 };
 
 pub mod constant_pool;
+pub use constant_pool::ConstantPool;
 use constant_pool::{CPAccessError, CPAccessResult, CPEntry};
 
 pub mod raw;
+use raw::{
+    RawAttribute, RawExceptionHandler, RawField, RawInnerClassInfo, RawLocalVariable, RawMethod,
+};
 
 pub mod stack_frame;
 use stack_frame::StackMapFrame;
-
-pub use constant_pool::ConstantPool;
-pub use raw::{RawAttribute, RawExceptionHandler, RawField, RawMethod};
 
 /// Reinterpret `x` as a reference to a byte slice. The length of the slice is
 /// equal to the size of `T`. `T` should never be a reference type or any type
@@ -3136,7 +3137,37 @@ pub enum JavaAttribute {
         /// The attributes of the method body.
         attributes: Vec<JavaAttribute>,
     },
+    /// A stack map table is used for type checking.
     StackMapTable(Vec<StackMapFrame>),
+    /// The list of exception types that the function is declared to throw.
+    Exceptions(Vec<QualifiedClassName>),
+    /// A list of non-package classes referred to or contained by this class.
+    InnerClasses(Vec<InnerClassInfo>),
+    /// The method containing this local or anonymous class.
+    EnclosingMethod {
+        /// The class containing this local or anonymous class.
+        class: QualifiedClassName,
+        /// The method of `class` containing this local or anonymous class.
+        method: Option<(JavaIdentifier, JavaType)>,
+    },
+    /// An alternative to the synthetic flag on classes, methods, and fields.
+    Synthetic,
+    /// A non-erased generic type signature.
+    Signature(String),
+    /// The filename of the file that this class was compiled from.
+    SourceFile(String),
+    /// Extra debug information.
+    SourceDebugExtension {
+        /// The length of the debug information when encoded in JVM-8.
+        jvm8_len: u32,
+        /// The debug information.
+        value: String,
+    },
+    /// Debug information about where in the `Code` attribute the line number of the original
+    /// source code changes.
+    LineNumberTable(Vec<LineNumber>),
+    /// Debug information about local variables for a `Code` attribute.
+    LocalVariableTable(Vec<LocalVariable>),
     /// An attribute that does not fall into any of the other categories.
     GenericAttribute {
         /// The name of the attribute.
@@ -3153,16 +3184,30 @@ impl JavaAttribute {
     const CODE_NAME: &'static str = "Code";
     /// The name of the StackMapTable attribute.
     const STACK_MAP_TABLE_NAME: &'static str = "StackMapTable";
+    /// The name of the Exceptions attribute.
+    const EXCEPTIONS_NAME: &'static str = "Exceptions";
+    /// The name of the InnerClasses attribute.
+    const INNER_CLASSES_NAME: &'static str = "InnerClasses";
+    /// The name of the EnclosingMethod attribute.
+    const ENCLOSING_METHOD_NAME: &'static str = "EnclosingMethod";
+    /// The name of the Synthetic attribute.
+    const SYNTHETIC_NAME: &'static str = "Synthetic";
+    /// The name of the Signature attribute.
+    const SIGNATURE_NAME: &'static str = "Signature";
+    /// The name of the SourceFile attribute.
+    const SOURCE_FILE_NAME: &'static str = "SourceFile";
+    /// The name of the SourceDebugExtension attribute.
+    const SOURCE_DEBUG_EXTENSION_NAME: &'static str = "SourceDebugExtension";
+    /// The name of the LineNumberTable attribute.
+    const LINE_NUMBER_TABLE_NAME: &'static str = "LineNumberTable";
+    /// The name of the LocalVariableTable attribute.
+    const LOCAL_VARIABLE_TABLE_NAME: &'static str = "LocalVariableTable";
 
     /// Reads a single attribute from the byte source `src`.
-    fn read(
-        src: &mut dyn Read,
-        pool: &ConstantPool,
-        counter: &mut usize,
-    ) -> CrateResult<JavaAttribute> {
+    fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
         let name_idx = read_u16(src, counter)?;
         match pool.get_utf8(name_idx)? {
-            name if name == JavaAttribute::CONSTANT_VALUE_NAME => {
+            name if name == Self::CONSTANT_VALUE_NAME => {
                 match read_u32(src, counter)? {
                     2 => {}
                     len => {
@@ -3173,13 +3218,11 @@ impl JavaAttribute {
                     }
                 }
                 let attr = match pool.get(read_u16(src, counter)?)? {
-                    CPEntry::Integer(i) => JavaAttribute::ConstantInt(*i),
-                    CPEntry::Float(f) => JavaAttribute::ConstantFloat(*f),
-                    CPEntry::Long(l) => JavaAttribute::ConstantLong(*l),
-                    CPEntry::Double(d) => JavaAttribute::ConstantDouble(*d),
-                    CPEntry::String(idx) => {
-                        JavaAttribute::ConstantString(pool.get_owned_string(*idx)?)
-                    }
+                    CPEntry::Integer(i) => Self::ConstantInt(*i),
+                    CPEntry::Float(f) => Self::ConstantFloat(*f),
+                    CPEntry::Long(l) => Self::ConstantLong(*l),
+                    CPEntry::Double(d) => Self::ConstantDouble(*d),
+                    CPEntry::String(idx) => Self::ConstantString(pool.get_owned_string(*idx)?),
                     entry => {
                         return Err(ClassParseError::InvalidAttributeValue {
                             name: name.to_string(),
@@ -3190,7 +3233,7 @@ impl JavaAttribute {
                 };
                 Ok(attr)
             }
-            name if name == JavaAttribute::CODE_NAME => {
+            name if name == Self::CODE_NAME => {
                 // Structure:
                 // {
                 //     name_idx: u16, // Already read
@@ -3215,7 +3258,7 @@ impl JavaAttribute {
                 let exception_handlers = read_exception_handlers(src, pool, counter)?;
                 let attributes = read_attributes(src, pool, counter)?;
                 debug_assert_eq!(*counter - counter_base, value_length);
-                let ret = JavaAttribute::Code {
+                let ret = Self::Code {
                     max_stack,
                     max_locals,
                     body,
@@ -3224,7 +3267,7 @@ impl JavaAttribute {
                 };
                 Ok(ret)
             }
-            name if name == JavaAttribute::STACK_MAP_TABLE_NAME => {
+            name if name == Self::STACK_MAP_TABLE_NAME => {
                 // Structure:
                 // {
                 //     name_idx: u16, // Already read
@@ -3241,21 +3284,172 @@ impl JavaAttribute {
                 debug_assert_eq!(value_length, *counter - counter_base);
                 Ok(Self::StackMapTable(entries))
             }
-            "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
-            "NestHost" => unimplemented!("Attribute::NestHost"),
-            "NestMembers" => unimplemented!("Attribute::NestMembers"),
-            "PermittedSubclasses" => unimplemented!("Attribute::PermittedSubclasses"),
-            "Exceptions" => unimplemented!("Attribute::Exceptions"),
-            "InnerClasses" => unimplemented!("Attribute::InnerClasses"),
-            "EnclosingMethod" => unimplemented!("Attribute::EnclosingMethod"),
-            "Synthetic" => unimplemented!("Attribute::Synthetic"),
-            "Signature" => unimplemented!("Attribute::Signature"),
-            "Record" => unimplemented!("Attribute::Record"),
-            "SourceFile" => unimplemented!("Attribute::SourceFile"),
-            "LineNumberTable" => unimplemented!("Attribute::LineNumberTable"),
-            "LocalVariableTable" => unimplemented!("Attribute::LocalVariableTable"),
+            name if name == Self::EXCEPTIONS_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     number_of_exceptions: u16,
+                //     exception_indices: [u16; number_of_exceptions],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let number_of_exceptions = read_u16(src, counter)?;
+                let exception_types = (0..number_of_exceptions)
+                    .map(|_| {
+                        pool.get_class_name(read_u16(src, counter)?)
+                            .map_err(|e| e.into())
+                    })
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::Exceptions(exception_types))
+            }
+            name if name == Self::INNER_CLASSES_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     number_of_classes: u16,
+                //     classes_info: [
+                //         {
+                //             inner_class_idx: u16,
+                //             outer_class_idx: u16,
+                //             inner_name_idx: u16,
+                //             inner_class_access_flags: u16,
+                //         };
+                //         number_of_classes
+                //     ],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let num_classes = read_u16(src, counter)?;
+                let classes_info = (0..num_classes)
+                    .map(|_| InnerClassInfo::read(src, pool, counter))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::InnerClasses(classes_info))
+            }
+            name if name == Self::ENCLOSING_METHOD_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     class_index: u16,
+                //     method_index: u16,
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let class_idx = read_u16(src, counter)?;
+                let method_idx = read_u16(src, counter)?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                let class = pool.get_class_name(class_idx)?;
+                let method = if method_idx == 0 {
+                    None
+                } else {
+                    Some(pool.get_name_and_type(method_idx)?)
+                };
+                Ok(Self::EnclosingMethod { class, method })
+            }
+            name if name == Self::SYNTHETIC_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                // }
+                let value_length = read_u32(src, counter)?;
+                if value_length != 0 {
+                    return Err(ClassParseError::InvalidAttributeLength {
+                        name: Self::SYNTHETIC_NAME.into(),
+                        len: value_length,
+                    }
+                    .into());
+                }
+                Ok(Self::Synthetic)
+            }
+            name if name == Self::SIGNATURE_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     signature_idx: u16,
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let signature_idx = read_u16(src, counter)?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::Signature(pool.get_utf8(signature_idx)?.to_string()))
+            }
+            name if name == Self::SOURCE_FILE_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     source_file_idx: u16,
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let source_file_idx = read_u16(src, counter)?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::SourceFile(
+                    pool.get_utf8(source_file_idx)?.to_string(),
+                ))
+            }
+            name if name == Self::SOURCE_DEBUG_EXTENSION_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     debug_extension: jvm8,
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let debug_extension = {
+                    let mut bytes = Vec::with_capacity(value_length);
+                    src.take(u64::try_from(value_length)?)
+                        .read_to_end(&mut bytes)?;
+                    crate::convert_jvm8_to_string(&bytes)?
+                };
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::SourceDebugExtension {
+                    jvm8_len: u32::try_from(value_length).unwrap(),
+                    value: debug_extension,
+                })
+            }
+            name if name == Self::LINE_NUMBER_TABLE_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     num_line_number_table_entries: u16,
+                //     line_number_table: [LineNumber; num_line_number_table_entries],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let num_line_number_table_entries = read_u16(src, counter)?;
+                let entries = (0..num_line_number_table_entries)
+                    .map(|_| LineNumber::read(src, counter))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::LineNumberTable(entries))
+            }
+            name if name == Self::LOCAL_VARIABLE_TABLE_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     local_variable_table_len: u16,
+                //     local_variable_table: [LocalVariable; local_variable_table_len],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let local_variable_table_len = read_u16(src, counter)?;
+                let table = (0..local_variable_table_len)
+                    .map(|_| LocalVariable::read(src, pool, counter))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::LocalVariableTable(table))
+            }
             "LocalVariableTypeTable" => unimplemented!("Attribute::LocalVariableTypeTable"),
-            "SourceDebugExtension" => unimplemented!("Attribute::SourceDebugExtension"),
             "Deprecated" => unimplemented!("Attribute::Deprecated"),
             "RuntimeVisibleAnnotations" => unimplemented!("Attribute::RuntimeVisibleAnnotations"),
             "RuntimeInvisibleAnnotations" => {
@@ -3267,22 +3461,13 @@ impl JavaAttribute {
             "RuntimeInvisibleParameterAnnotations" => {
                 unimplemented!("Attribute::RuntimeInvisibleParameterAnnotations")
             }
-            "RuntimeVisibleTypeAnnotations" => {
-                unimplemented!("Attribute::RuntimeVisibleTypeAnnotations")
-            }
-            "RuntimeInvisibleTypeAnnotations" => {
-                unimplemented!("Attribute::RuntimeInvisibleTypeAnnotations")
-            }
             "AnnotationDefault" => unimplemented!("Attribute::AnnotationDefault"),
-            "MethodParameters" => unimplemented!("Attribute::MethodParameters"),
-            "Module" => unimplemented!("Attribute::Module"),
-            "ModulePackages" => unimplemented!("Attribute::ModulePackages"),
-            "ModuleMainClass" => unimplemented!("Attribute::ModuleMainClass"),
+            "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
             name => {
                 let name = name.to_string();
                 let info_length = eio::read_u32(src)?.into();
                 let info = eio::read_bytes(src, info_length)?;
-                Ok(JavaAttribute::GenericAttribute { name, info })
+                Ok(Self::GenericAttribute { name, info })
             }
         }
     }
@@ -3290,68 +3475,77 @@ impl JavaAttribute {
     /// Get the name of the attribute.
     pub fn name(&self) -> &str {
         match self {
-            JavaAttribute::ConstantLong(_)
-            | JavaAttribute::ConstantFloat(_)
-            | JavaAttribute::ConstantDouble(_)
-            | JavaAttribute::ConstantInt(_)
-            | JavaAttribute::ConstantString(_) => JavaAttribute::CONSTANT_VALUE_NAME,
-            JavaAttribute::Code { .. } => JavaAttribute::CODE_NAME,
-            JavaAttribute::StackMapTable(_) => JavaAttribute::STACK_MAP_TABLE_NAME,
-            JavaAttribute::GenericAttribute { name, .. } => name.as_ref(),
+            Self::ConstantLong(_)
+            | Self::ConstantFloat(_)
+            | Self::ConstantDouble(_)
+            | Self::ConstantInt(_)
+            | Self::ConstantString(_) => Self::CONSTANT_VALUE_NAME,
+            Self::Code { .. } => Self::CODE_NAME,
+            Self::StackMapTable(_) => Self::STACK_MAP_TABLE_NAME,
+            Self::Exceptions(_) => Self::EXCEPTIONS_NAME,
+            Self::InnerClasses(_) => Self::INNER_CLASSES_NAME,
+            Self::EnclosingMethod { .. } => Self::ENCLOSING_METHOD_NAME,
+            Self::Synthetic => Self::SYNTHETIC_NAME,
+            Self::Signature(_) => Self::SIGNATURE_NAME,
+            Self::SourceFile(_) => Self::SOURCE_FILE_NAME,
+            Self::SourceDebugExtension { .. } => Self::SOURCE_DEBUG_EXTENSION_NAME,
+            Self::LineNumberTable(_) => Self::LINE_NUMBER_TABLE_NAME,
+            Self::LocalVariableTable(_) => Self::LOCAL_VARIABLE_TABLE_NAME,
+            Self::GenericAttribute { name, .. } => name.as_ref(),
         }
     }
 
     /// Convert `self` into a form that can be directly written into a Java class file.
     pub fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawAttribute> {
         match self {
-            JavaAttribute::ConstantLong(l) => {
-                let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
+            Self::ConstantLong(l) => {
+                let name_idx = pool.add_utf8(Self::CONSTANT_VALUE_NAME.to_string())?;
                 let value_idx = pool.add(CPEntry::Long(l))?;
                 Ok(RawAttribute::ConstantValue {
                     name_idx,
                     value_idx,
                 })
             }
-            JavaAttribute::ConstantFloat(f) => {
-                let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
+            Self::ConstantFloat(f) => {
+                let name_idx = pool.add_utf8(Self::CONSTANT_VALUE_NAME.to_string())?;
                 let value_idx = pool.add(CPEntry::Float(f))?;
                 Ok(RawAttribute::ConstantValue {
                     name_idx,
                     value_idx,
                 })
             }
-            JavaAttribute::ConstantDouble(d) => {
-                let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
+            Self::ConstantDouble(d) => {
+                let name_idx = pool.add_utf8(Self::CONSTANT_VALUE_NAME.to_string())?;
                 let value_idx = pool.add(CPEntry::Double(d))?;
                 Ok(RawAttribute::ConstantValue {
                     name_idx,
                     value_idx,
                 })
             }
-            JavaAttribute::ConstantInt(i) => {
-                let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
+            Self::ConstantInt(i) => {
+                let name_idx = pool.add_utf8(Self::CONSTANT_VALUE_NAME.to_string())?;
                 let value_idx = pool.add(CPEntry::Integer(i))?;
                 Ok(RawAttribute::ConstantValue {
                     name_idx,
                     value_idx,
                 })
             }
-            JavaAttribute::ConstantString(s) => {
-                let name_idx = pool.add_utf8(JavaAttribute::CONSTANT_VALUE_NAME.to_string())?;
+            Self::ConstantString(s) => {
+                let name_idx = pool.add_utf8(Self::CONSTANT_VALUE_NAME.to_string())?;
                 let value_idx = pool.add_string(s)?;
                 Ok(RawAttribute::ConstantValue {
                     name_idx,
                     value_idx,
                 })
             }
-            JavaAttribute::Code {
+            Self::Code {
                 max_stack,
                 max_locals,
                 body,
                 exception_handlers,
                 attributes,
             } => {
-                let name_idx = pool.add_utf8(JavaAttribute::CODE_NAME.to_string())?;
+                let name_idx = pool.add_utf8(Self::CODE_NAME.to_string())?;
                 let body = body.into_raw(pool)?;
                 let exception_handlers = exception_handlers
                     .into_iter()
@@ -3370,15 +3564,89 @@ impl JavaAttribute {
                     attributes,
                 })
             }
-            JavaAttribute::StackMapTable(smt) => {
-                let name_idx = pool.add_utf8(JavaAttribute::STACK_MAP_TABLE_NAME.to_string())?;
+            Self::StackMapTable(smt) => {
+                let name_idx = pool.add_utf8(Self::STACK_MAP_TABLE_NAME.to_string())?;
                 let entries = smt
                     .into_iter()
                     .map(|frame| frame.into_raw(pool))
                     .collect::<CrateResult<Vec<_>>>()?;
                 Ok(RawAttribute::StackMapTable { name_idx, entries })
             }
-            JavaAttribute::GenericAttribute { name, info } => {
+            Self::Exceptions(exceptions) => {
+                let name_idx = pool.add_utf8(Self::EXCEPTIONS_NAME.to_string())?;
+                let exception_indices = exceptions
+                    .into_iter()
+                    .map(|exn| pool.add_class_name(exn))
+                    .collect::<CPAccessResult<Vec<_>>>()?;
+                Ok(RawAttribute::Exceptions {
+                    name_idx,
+                    exception_indices,
+                })
+            }
+            Self::InnerClasses(classes_info) => {
+                let name_idx = pool.add_utf8(Self::INNER_CLASSES_NAME.to_string())?;
+                let classes_info = classes_info
+                    .into_iter()
+                    .map(|info| info.into_raw(pool))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::InnerClasses {
+                    name_idx,
+                    classes_info,
+                })
+            }
+            Self::EnclosingMethod { class, method } => {
+                let name_idx = pool.add_utf8(Self::ENCLOSING_METHOD_NAME.to_string())?;
+                let class_idx = pool.add_class_name(class)?;
+                let method_idx = method
+                    .map(|(name, r#type)| pool.add_name_and_type(name, r#type))
+                    .unwrap_or(Ok(0))?;
+                Ok(RawAttribute::EnclosingMethod {
+                    name_idx,
+                    class_idx,
+                    method_idx,
+                })
+            }
+            Self::Synthetic => {
+                let name_idx = pool.add_utf8(Self::SYNTHETIC_NAME.into())?;
+                Ok(RawAttribute::Synthetic(name_idx))
+            }
+            Self::Signature(signature) => {
+                let name_idx = pool.add_utf8(Self::SIGNATURE_NAME.to_string())?;
+                let signature_idx = pool.add_utf8(signature)?;
+                Ok(RawAttribute::Signature {
+                    name_idx,
+                    signature_idx,
+                })
+            }
+            Self::SourceFile(source_file) => {
+                let name_idx = pool.add_utf8(Self::SOURCE_FILE_NAME.to_string())?;
+                let source_file_idx = pool.add_utf8(source_file)?;
+                Ok(RawAttribute::SourceFile {
+                    name_idx,
+                    source_file_idx,
+                })
+            }
+            Self::SourceDebugExtension { jvm8_len, value } => {
+                let name_idx = pool.add_utf8(Self::SOURCE_DEBUG_EXTENSION_NAME.to_string())?;
+                Ok(RawAttribute::SourceDebugExtension {
+                    name_idx,
+                    jvm8_len,
+                    value,
+                })
+            }
+            Self::LineNumberTable(table) => {
+                let name_idx = pool.add_utf8(Self::LINE_NUMBER_TABLE_NAME.to_string())?;
+                Ok(RawAttribute::LineNumberTable { name_idx, table })
+            }
+            Self::LocalVariableTable(table) => {
+                let name_idx = pool.add_utf8(Self::LOCAL_VARIABLE_TABLE_NAME.to_string())?;
+                let table = table
+                    .into_iter()
+                    .map(|entry| entry.into_raw(pool))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::LocalVariableTable { name_idx, table })
+            }
+            Self::GenericAttribute { name, info } => {
                 let name_idx = pool.add_utf8(name)?;
                 Ok(RawAttribute::GenericAttribute { name_idx, info })
             }
@@ -3396,6 +3664,249 @@ pub fn read_attributes(
     (0..num_attributes)
         .map(|_| JavaAttribute::read(src, pool, counter))
         .collect()
+}
+
+/// A description of a non-package class referred to by or contained in this class.
+#[derive(Clone, Debug)]
+pub struct InnerClassInfo {
+    /// The full name of the inner class C.
+    name: QualifiedClassName,
+    /// The full name of the outer class. If C is not a member of a class or an interface - that is,
+    /// if C is a top-level class or interface (JLS §7.6) or a local class (JLS §14.3) or an
+    /// anonymous class (JLS §15.9.5) - then the value of the `container` must be `None`.
+    ///
+    /// Otherwise, the value of `container` must not equal the the value of `name`.
+    container: Option<QualifiedClassName>,
+    /// If C is anonymous (JLS §15.9.5), the value of `unqualified_name` must be `""`.
+    ///
+    /// Otherwise, the value of `unqualified_name` must be the original simple name of C, as given
+    /// in the source code from which this class file was compiled.
+    unqualified_name: String,
+    /// The value of `access_flags` is a bitset of flags used to denote access permissions to and
+    /// properties of class or interface C as declared in the source code from which this class file
+    /// was compiled. It is used by a compiler to recover the original information when source code
+    /// is not available.
+    ///
+    /// <table>
+    /// <tr><th>Flag Name</th><th>Value</th><th>Interpretation</th></tr>
+    /// <tr><td>ACC_PUBLIC</td><td>0x0001</td><td>Marked or implicitly public in source.</td></tr>
+    /// <tr><td>ACC_PRIVATE</td><td>0x0002</td><td>Marked private in source.</td></tr>
+    /// <tr><td>ACC_PROTECTED</td><td>0x0004</td><td>Marked protected in source.</td></tr>
+    /// <tr><td>ACC_STATIC</td><td>0x0008</td><td>Marked or implicitly static in source.</td></tr>
+    /// <tr><td>ACC_FINAL</td><td>0x0010</td><td>Marked or implicitly final in source.</td></tr>
+    /// <tr><td>ACC_INTERFACE</td><td>0x0200</td><td>Was an interface in source.</td></tr>
+    /// <tr>
+    ///     <td>ACC_ABSTRACT</td><td>0x0400</td><td>Marked or implicitly abstract in source.</td>
+    /// </tr>
+    /// <tr>
+    ///     <td>ACC_SYNTHETIC</td>
+    ///     <td>0x1000</td>
+    ///     <td>Declared synthetic; not present in the source code.</td>
+    /// </tr>
+    /// <tr><td>ACC_ANNOTATION</td><td>0x2000</td><td>Declared as an annotation interface.</td></tr>
+    /// <tr><td>ACC_ENUM</td><td>0x4000</td><td>Declared as an enum class.</td></tr>
+    /// </table>
+    ///
+    /// All bits of `access_flags` not assigned in the preceding table are reserved for future use.
+    /// They should be set to zero in generated class files and should be ignored by Java Virtual
+    /// Machine implementations.
+    access_flags: u16,
+}
+
+impl InnerClassInfo {
+    /// Convert this description into a form that can be written to a class file without further
+    /// modifying the constant pool.
+    pub fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawInnerClassInfo> {
+        let name_idx = pool.add_class_name(self.name)?;
+        let container_idx = self
+            .container
+            .map(|qcn| pool.add_class_name(qcn))
+            .unwrap_or(Ok(0))?;
+        let unqualified_name_idx = if self.unqualified_name.is_empty() {
+            0
+        } else {
+            pool.add_utf8(self.unqualified_name)?
+        };
+        Ok(RawInnerClassInfo {
+            name_idx,
+            container_idx,
+            unqualified_name_idx,
+            access_flags: self.access_flags,
+        })
+    }
+
+    /// Read a description from a class file.
+    fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
+        let name_idx = read_u16(src, counter)?;
+        let container_idx = read_u16(src, counter)?;
+        let unqualified_name_idx = read_u16(src, counter)?;
+        let access_flags = read_u16(src, counter)?;
+        let name = pool.get_class_name(name_idx)?;
+        let container = if container_idx == 0 {
+            None
+        } else {
+            Some(pool.get_class_name(container_idx)?)
+        };
+        let unqualified_name = if unqualified_name_idx == 0 {
+            "".to_string()
+        } else {
+            pool.get_utf8(unqualified_name_idx)?.to_string()
+        };
+        Ok(Self {
+            name,
+            container,
+            unqualified_name,
+            access_flags,
+        })
+    }
+}
+
+impl AccessFlagged for InnerClassInfo {
+    fn is_public(&self) -> bool {
+        self.access_flags & 0x1 != 0
+    }
+
+    fn is_private(&self) -> bool {
+        self.access_flags & 0x2 != 0
+    }
+
+    fn is_protected(&self) -> bool {
+        self.access_flags & 0x4 != 0
+    }
+
+    fn is_static(&self) -> bool {
+        self.access_flags & 0x8 != 0
+    }
+
+    fn is_final(&self) -> bool {
+        self.access_flags & 0x10 != 0
+    }
+
+    fn is_super_special(&self) -> bool {
+        false
+    }
+
+    fn is_synchronized(&self) -> bool {
+        false
+    }
+
+    fn is_volatile(&self) -> bool {
+        false
+    }
+
+    fn is_bridge(&self) -> bool {
+        false
+    }
+
+    fn is_transient(&self) -> bool {
+        false
+    }
+
+    fn is_varargs(&self) -> bool {
+        false
+    }
+
+    fn is_native(&self) -> bool {
+        false
+    }
+
+    fn is_interface(&self) -> bool {
+        self.access_flags & 0x200 != 0
+    }
+
+    fn is_abstract(&self) -> bool {
+        self.access_flags & 0x400 != 0
+    }
+
+    fn is_strict(&self) -> bool {
+        false
+    }
+
+    fn is_synthetic(&self) -> bool {
+        self.access_flags & 0x1000 != 0
+    }
+
+    fn is_annotation(&self) -> bool {
+        self.access_flags & 0x2000 != 0
+    }
+
+    fn is_enum(&self) -> bool {
+        self.access_flags & 0x4000 != 0
+    }
+}
+
+/// An entry in a [`JavaAttribute::LineNumberTable`] attribute.
+#[derive(Clone, Copy, Debug)]
+pub struct LineNumber {
+    /// The offset into the `Code` attribute where line `line_number` starts.
+    pub start_pc: u16,
+    /// The line number of the source code that this entry describes.
+    pub line_number: u16,
+}
+
+impl LineNumber {
+    fn read(src: &mut dyn Read, counter: &mut usize) -> CrateResult<Self> {
+        let start_pc = read_u16(src, counter)?;
+        let line_number = read_u16(src, counter)?;
+        Ok(Self {
+            start_pc,
+            line_number,
+        })
+    }
+}
+
+/// A local variable description in a `LocalVariableTable` attribute.
+#[derive(Clone, Debug)]
+pub struct LocalVariable {
+    /// The index into the `Code` attribute of the first instruction where this local variable must
+    /// have a value.
+    start_pc: u16,
+    /// The length of the slice into the `Code` attribute where this local variable must have a
+    /// value.
+    code_length: u16,
+    /// The name of the local variable.
+    name: String,
+    /// The type of the local variable.
+    r#type: JavaType,
+    /// The index of the local variable in the current frame.
+    index: u16,
+}
+
+impl LocalVariable {
+    /// Reads a local variable description from `src`.
+    fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
+        let start_pc = read_u16(src, counter)?;
+        let code_length = read_u16(src, counter)?;
+        let name_idx = read_u16(src, counter)?;
+        let type_idx = read_u16(src, counter)?;
+        let index = read_u16(src, counter)?;
+        let name = pool.get_utf8(name_idx)?.to_string();
+        let r#type = pool.get_type(type_idx)?;
+        Ok(Self {
+            start_pc,
+            code_length,
+            name,
+            r#type,
+            index,
+        })
+    }
+
+    /// Converts a local variable description into a form that can be written without further
+    /// modifying the constant pool.
+    fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawLocalVariable> {
+        let start_pc = self.start_pc;
+        let code_length = self.code_length;
+        let name_idx = pool.add_utf8(self.name)?;
+        let type_idx = pool.add_type(self.r#type)?;
+        let index = self.index;
+        Ok(RawLocalVariable {
+            start_pc,
+            code_length,
+            name_idx,
+            type_idx,
+            index,
+        })
+    }
 }
 
 /// A valid Java name. From [JLS7
