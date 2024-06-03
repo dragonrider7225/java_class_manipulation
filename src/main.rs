@@ -10,22 +10,16 @@ use clap::{App, Arg};
 
 use java_class_manipulation::JavaClass;
 
-struct Config {
-    in_file: String,
-    out_file: String,
-    _map_file: Option<String>,
-}
-
-fn parse_args() -> Config {
+fn app() -> App<'static> {
     let in_arg = Arg::with_name("input")
-        .short("i")
+        .short('i')
         .long("input")
         .value_name("FILE")
         .help("Sets the class file to read")
         .takes_value(true)
         .required(true);
     let out_arg = Arg::with_name("output")
-        .short("o")
+        .short('o')
         .long("output")
         .value_name("FILE")
         .help("Sets the class file to write")
@@ -33,20 +27,30 @@ fn parse_args() -> Config {
         .required(true);
     #[cfg(feature = "map_file")]
     let map_arg = Arg::with_name("map")
-        .short("m")
+        .short('m')
         .long("map")
         .value_name("FILE")
         .help("Sets the file to use for renaming the elements of the class")
         .takes_value(true);
-    let args = App::new("Java Class Manipulator")
-        .version("0.1.0")
+    let app = App::new("Java Class Manipulator")
+        .version(crate_version!())
         .author(crate_authors!())
         .about("Reads a Java class file, parses it, then writes the parsed class.")
         .arg(in_arg)
         .arg(out_arg);
     #[cfg(feature = "map_file")]
-    let args = args.arg(map_arg);
-    let matches = args.get_matches();
+    let app = app.arg(map_arg);
+    app
+}
+
+struct Config {
+    in_file: String,
+    out_file: String,
+    _map_file: Option<String>,
+}
+
+fn parse_args() -> Config {
+    let matches = app().get_matches();
     let in_file = matches
         .value_of("input")
         .expect("Missing input file")
@@ -81,4 +85,14 @@ fn main() -> io::Result<()> {
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_app() {
+        app().debug_assert();
+    }
 }
