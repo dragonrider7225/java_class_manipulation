@@ -5,10 +5,10 @@ authors = ["Kevin Moonen <dragonrider7225@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-clap = "2.33.0"
+clap = { version = "^4.0.0", features = ["cargo", "wrap_help"] }
 extended_io = { git = "https://github.com/dragonrider7225/extended_io.git" }
 nom = "^7.0.0"
-num_enum = "0.5.0"
+num_enum = "^0.5.0"
 
 [features]
 map_file = []
