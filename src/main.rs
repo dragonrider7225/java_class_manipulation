@@ -5,35 +5,29 @@ use std::{env, fs::OpenOptions, io};
 
 extern crate clap;
 
-use clap::{crate_authors, crate_version, Arg, ArgAction, Command};
+use clap::{crate_authors, crate_version, Arg, Command};
 
 use java_class_manipulation::JavaClass;
 
-fn cli() -> Command<'static> {
+fn cli() -> Command {
     let in_arg = Arg::new("input")
         .short('i')
         .long("input")
         .value_name("FILE")
         .help("Sets the class file to read")
-        .takes_value(true)
-        .action(ArgAction::Set)
         .required(true);
     let out_arg = Arg::new("output")
         .short('o')
         .long("output")
         .value_name("FILE")
         .help("Sets the class file to write")
-        .takes_value(true)
-        .action(ArgAction::Set)
         .required(true);
     #[cfg(feature = "map_file")]
     let map_arg = Arg::new("map")
         .short('m')
         .long("map")
         .value_name("FILE")
-        .help("Sets the file to use for renaming the elements of the class")
-        .takes_value(true)
-        .action(ArgAction::Set);
+        .help("Sets the file to use for renaming the elements of the class");
     let app = Command::new("Java Class Manipulator")
         .version(crate_version!())
         .author(crate_authors!())
