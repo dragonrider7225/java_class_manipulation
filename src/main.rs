@@ -3,36 +3,38 @@
 
 use std::{env, fs::OpenOptions, io};
 
-#[macro_use]
 extern crate clap;
 
-use clap::{App, Arg};
+use clap::{crate_authors, crate_version, Arg, ArgAction, Command};
 
 use java_class_manipulation::JavaClass;
 
-fn app() -> App<'static> {
-    let in_arg = Arg::with_name("input")
+fn cli() -> Command<'static> {
+    let in_arg = Arg::new("input")
         .short('i')
         .long("input")
         .value_name("FILE")
         .help("Sets the class file to read")
         .takes_value(true)
+        .action(ArgAction::Set)
         .required(true);
-    let out_arg = Arg::with_name("output")
+    let out_arg = Arg::new("output")
         .short('o')
         .long("output")
         .value_name("FILE")
         .help("Sets the class file to write")
         .takes_value(true)
+        .action(ArgAction::Set)
         .required(true);
     #[cfg(feature = "map_file")]
-    let map_arg = Arg::with_name("map")
+    let map_arg = Arg::new("map")
         .short('m')
         .long("map")
         .value_name("FILE")
         .help("Sets the file to use for renaming the elements of the class")
-        .takes_value(true);
-    let app = App::new("Java Class Manipulator")
+        .takes_value(true)
+        .action(ArgAction::Set);
+    let app = Command::new("Java Class Manipulator")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Reads a Java class file, parses it, then writes the parsed class.")
@@ -50,16 +52,20 @@ struct Config {
 }
 
 fn parse_args() -> Config {
-    let matches = app().get_matches();
+    let matches = cli().get_matches();
     let in_file = matches
-        .value_of("input")
+        .get_one::<String>("input")
         .expect("Missing input file")
-        .to_string();
+        .clone();
     let out_file = matches
-        .value_of("output")
+        .get_one::<String>("output")
         .expect("Missing output file")
-        .to_string();
-    let _map_file = matches.value_of("map").map(|s| s.to_string());
+        .clone();
+    let _map_file = if cfg!(feature = "map_file") {
+        matches.get_one::<String>("map").cloned()
+    } else {
+        None
+    };
     Config {
         in_file,
         out_file,
@@ -92,7 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn verify_app() {
-        app().debug_assert();
+    fn verify_cli() {
+        cli().debug_assert();
     }
 }
