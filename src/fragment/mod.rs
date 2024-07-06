@@ -3497,7 +3497,7 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                 opcode if opcode == Self::INVOKEINTERFACE => Box::new(comb::map(
                     sequence::pair(
                         num::be_u16,
-                        sequence::terminated(num::be_u8, bytes::tag(b"0")),
+                        sequence::terminated(num::be_u8, bytes::tag([0])),
                     ),
                     |(index, num_arg_bytes)| {
                         Ok(Self::Invokeinterface {
