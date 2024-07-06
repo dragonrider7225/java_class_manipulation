@@ -683,7 +683,7 @@ impl ConstantPool {
     /// Get the name-type pair at index `idx`.
     pub fn get_name_and_type(&self, idx: u16) -> CPAccessResult<(JavaIdentifier, JavaType)> {
         match self.get(idx)? {
-            &CPEntry::NameAndType(ident_idx, type_idx) => (|| {
+            &CPEntry::NameAndType(ident_idx, type_idx) => {
                 let ident = self.get_utf8(ident_idx)?.parse().map_err(|e| {
                     CPAccessError::FailedTypeConversion {
                         request: ident_idx,
@@ -693,7 +693,7 @@ impl ConstantPool {
                 })?;
                 let r#type = self.get_type(type_idx)?;
                 Ok((ident, r#type))
-            })()
+            }
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
                 cause: Box::new(e),
@@ -709,20 +709,20 @@ impl ConstantPool {
     /// Get the symbolic method reference at index `idx`.
     pub fn get_method_ref(&self, idx: u16) -> CPAccessResult<MethodRef> {
         match *(self.get(idx)?) {
-            CPEntry::Methodref(qcn_idx, nat_idx) => (|| {
+            CPEntry::Methodref(qcn_idx, nat_idx) => {
                 let owner = self.get_class_name(qcn_idx)?;
                 let (ident, r#type) = self.get_name_and_type(nat_idx)?;
                 Ok(MethodRef::new(false, owner, ident, r#type))
-            })()
+            }
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
                 cause: Box::new(e),
             }),
-            CPEntry::InterfaceMethodref(qcn_idx, nat_idx) => (|| {
+            CPEntry::InterfaceMethodref(qcn_idx, nat_idx) => {
                 let owner = self.get_class_name(qcn_idx)?;
                 let (ident, r#type) = self.get_name_and_type(nat_idx)?;
                 Ok(MethodRef::new(true, owner, ident, r#type))
-            })()
+            }
             .map_err(|e| CPAccessError::BadTarget {
                 request: idx,
                 cause: Box::new(e),
