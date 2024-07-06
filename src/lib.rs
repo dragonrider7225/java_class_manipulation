@@ -637,20 +637,20 @@ impl JavaClass {
             let major_version = eio::read_u16(src)?;
             ClassFileVersion::new(major_version, minor_version)
         };
-        let constant_pool = dbg!(ConstantPool::read(src)?);
-        let access_flags = dbg!(eio::read_u16(src)?);
+        let constant_pool = ConstantPool::read(src)?;
+        let access_flags = eio::read_u16(src)?;
         let this_class = {
             let this_class_idx = eio::read_u16(src)?;
-            dbg!(constant_pool.get_class_name(this_class_idx)?)
+            constant_pool.get_class_name(this_class_idx)?
         };
         let super_class = {
             let super_class_idx = eio::read_u16(src)?;
-            dbg!(constant_pool.get_class_name(super_class_idx)?)
+            constant_pool.get_class_name(super_class_idx)?
         };
-        let interfaces = dbg!(read_interfaces(src, &constant_pool)?);
-        let fields = dbg!(fragment::read_fields(src, &constant_pool)?);
-        let methods = dbg!(fragment::read_methods(src, &constant_pool)?);
-        let attributes = dbg!(fragment::read_attributes(src, &constant_pool, &mut 0)?);
+        let interfaces = read_interfaces(src, &constant_pool)?;
+        let fields = fragment::read_fields(src, &constant_pool)?;
+        let methods = fragment::read_methods(src, &constant_pool)?;
+        let attributes = dbg!(fragment::read_attributes(src, &constant_pool, &mut 0))?;
         let ret = JavaClass::new(
             version,
             access_flags,

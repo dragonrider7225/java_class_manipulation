@@ -3678,7 +3678,7 @@ impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
     ) -> IResult<Self::Input, Self::Output> {
         let mut ret = Self::default();
         loop {
-            match dbg!(JavaOpCode::nom_parse((ret.len(), env), s)) {
+            match JavaOpCode::nom_parse((ret.len(), env), s) {
                 Ok((rest, opcode)) => {
                     if rest == s {
                         return Err(Err::Error(<_ as ParseError<_>>::from_error_kind(
@@ -3810,7 +3810,7 @@ impl JavaAttribute {
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
         let name_idx = read_u16(src, counter)?;
-        match dbg!(pool.get_utf8(name_idx)?) {
+        match pool.get_utf8(name_idx)? {
             name if name == Self::CONSTANT_VALUE_NAME => {
                 match read_u32(src, counter)? {
                     2 => {}
@@ -3858,7 +3858,7 @@ impl JavaAttribute {
                 let max_locals = read_u16(src, counter)?;
                 let code_len = read_u32(src, counter)?;
                 let code = read_bytes(src, code_len.into(), counter)?;
-                let body = dbg!(JavaFunctionBody::parse(&code, pool)?);
+                let body = JavaFunctionBody::parse(&code, pool)?;
                 let exception_handlers = read_exception_handlers(src, pool, counter)?;
                 let attributes = read_attributes(src, pool, counter)?;
                 debug_assert_eq!(*counter - counter_base, value_length);
@@ -4306,7 +4306,7 @@ pub fn read_attributes(
 ) -> CrateResult<Vec<JavaAttribute>> {
     let num_attributes = read_u16(src, counter)?;
     (0..num_attributes)
-        .map(|_| dbg!(JavaAttribute::read(src, pool, counter)))
+        .map(|_| JavaAttribute::read(src, pool, counter))
         .collect()
 }
 
@@ -4950,7 +4950,7 @@ pub fn read_methods(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<Vec<
     let num_methods = eio::read_u16(src)?;
     let mut ret = Vec::with_capacity(num_methods.into());
     for _ in 0..num_methods {
-        ret.push(dbg!(JavaMethod::read(src, pool)?));
+        ret.push(JavaMethod::read(src, pool)?);
     }
     Ok(ret)
 }
