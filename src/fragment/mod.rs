@@ -4694,13 +4694,17 @@ impl<'i> NomParse<(), &'i str> for JavaIdentifier {
             .contains(&s)
         }
         comb::map(
-            comb::verify(
-                comb::recognize(sequence::pair(
-                    comb::verify(character::anychar, |&c| is_java_alphabetic(c)),
-                    bytes::take_while(|c| is_java_alphabetic(c) || c.is_numeric()),
-                )),
-                not_keyword,
-            ),
+            branch::alt((
+                comb::verify(
+                    comb::recognize(sequence::pair(
+                        comb::verify(character::anychar, |&c| is_java_alphabetic(c)),
+                        bytes::take_while(|c| is_java_alphabetic(c) || c.is_numeric()),
+                    )),
+                    not_keyword,
+                ),
+                bytes::tag("<init>"),
+                bytes::tag("<clinit>"),
+            )),
             |s: &str| Self(s.to_string()),
         )(s)
     }
