@@ -39,10 +39,10 @@ use types::{JavaType, QualifiedClassName};
 pub type CrateResult<T> = Result<T, CrateError>;
 
 /// The error type of all functions in this crate that return a `Result`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CrateError {
     /// The wrapper around I/O errors.
-    IoError(io::Error),
+    IoError(&'static io::Error),
     /// The wrapper around class parse errors.
     ParseError(ClassParseError),
     /// A wrapper.
@@ -86,7 +86,13 @@ impl Error for CrateError {
 
 impl From<io::Error> for CrateError {
     fn from(e: io::Error) -> Self {
-        Self::IoError(e)
+        Self::IoError(Box::leak(Box::new(e)))
+    }
+}
+
+impl From<&'static io::Error> for CrateError {
+    fn from(value: &'static io::Error) -> Self {
+        Self::IoError(value)
     }
 }
 
@@ -192,7 +198,7 @@ impl<T> Either<T, T> {
 }
 
 /// An error which arises in the process of parsing a Java class file.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ClassParseError {
     /// The expected magic number at the beginning of the class file is not present
     InvalidMagicNumber {
@@ -226,9 +232,9 @@ pub enum ClassParseError {
         value: String,
     },
     /// A wrapper
-    GenericError(Box<dyn Error + 'static + Send + Sync>),
+    GenericError(&'static (dyn Error + Send + Sync)),
     /// A wrapper
-    IoError(io::Error),
+    IoError(&'static io::Error),
     /// A wrapper
     CPAccessError(CPAccessError),
     /// A wrapper
@@ -237,7 +243,7 @@ pub enum ClassParseError {
 
 impl From<io::Error> for ClassParseError {
     fn from(e: io::Error) -> Self {
-        Self::IoError(e)
+        Self::IoError(Box::leak(Box::new(e)))
     }
 }
 
@@ -322,7 +328,7 @@ impl Error for ClassParseError {
             | ClassParseError::InvalidByteSequence { .. }
             | ClassParseError::InvalidAttributeLength { .. }
             | ClassParseError::InvalidAttributeValue { .. } => None,
-            ClassParseError::GenericError(e) => Some(e.as_ref()),
+            ClassParseError::GenericError(e) => Some(e),
             ClassParseError::IoError(e) => Some(e),
             ClassParseError::CPAccessError(e) => Some(e),
             ClassParseError::NomError(e) => Some(e),
@@ -410,9 +416,13 @@ impl FieldRef {
 /// A symbolic reference to a method in some Java class.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodRef {
+    /// Whether the owner is an interface.
     interface_method: bool,
+    /// The fully-qualified name of the owning class.
     owner: QualifiedClassName,
+    /// The name of the method.
     ident: JavaIdentifier,
+    /// The type of the method.
     r#type: JavaType,
 }
 
@@ -479,8 +489,8 @@ pub trait AccessFlagged {
     fn is_volatile(&self) -> bool; // 0x0040
     /// The method is a bridge method. A bridge method is generated when a generic method is
     /// "overridden" by a method with a different erasure. For example, given the following classes,
-    /// the compiler erases Node<T>.setData(T) to Node.setData(Object) and generates a method
-    /// MyNode.setData(Object) which calls MyNode.setData(Integer) with the proper casts.
+    /// the compiler erases `Node<T>.setData(T)` to `Node.setData(Object)` and generates a method
+    /// `MyNode.setData(Object)` which calls `MyNode.setData(Integer)` with the proper casts.
     ///
     /// ```java
     /// public class Node<T> { // The compiler erases this into Node
@@ -627,20 +637,20 @@ impl JavaClass {
             let major_version = eio::read_u16(src)?;
             ClassFileVersion::new(major_version, minor_version)
         };
-        let constant_pool = ConstantPool::read(src)?;
-        let access_flags = eio::read_u16(src)?;
+        let constant_pool = dbg!(ConstantPool::read(src)?);
+        let access_flags = dbg!(eio::read_u16(src)?);
         let this_class = {
             let this_class_idx = eio::read_u16(src)?;
-            constant_pool.get_class_name(this_class_idx)?
+            dbg!(constant_pool.get_class_name(this_class_idx)?)
         };
         let super_class = {
             let super_class_idx = eio::read_u16(src)?;
-            constant_pool.get_class_name(super_class_idx)?
+            dbg!(constant_pool.get_class_name(super_class_idx)?)
         };
-        let interfaces = read_interfaces(src, &constant_pool)?;
-        let fields = fragment::read_fields(src, &constant_pool)?;
-        let methods = fragment::read_methods(src, &constant_pool)?;
-        let attributes = fragment::read_attributes(src, &constant_pool, &mut 0)?;
+        let interfaces = dbg!(read_interfaces(src, &constant_pool)?);
+        let fields = dbg!(fragment::read_fields(src, &constant_pool)?);
+        let methods = dbg!(fragment::read_methods(src, &constant_pool)?);
+        let attributes = dbg!(fragment::read_attributes(src, &constant_pool, &mut 0)?);
         let ret = JavaClass::new(
             version,
             access_flags,

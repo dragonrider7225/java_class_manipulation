@@ -1,13 +1,15 @@
 use nom::{
-    branch, bytes::complete as bytes, combinator as comb, error::Error, multi, sequence, Compare,
-    IResult, InputLength, InputTake, Parser,
+    branch, bytes::complete as bytes, combinator as comb, multi, sequence, Compare, IResult,
+    InputLength, InputTake,
 };
 
 use crate::{
     fragment::PackageName,
-    parsers::{self, impl_from_str_for_nom_parse_cf, NomBaseErr, NomParse, NomParseContextFree},
+    parsers::{impl_from_str_for_nom_parse_cf, NomBaseErr, NomParse, NomParseContextFree},
     Either, JavaIdentifier,
 };
+
+pub mod field;
 
 /// A fully-qualified Java class name.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,22 +27,24 @@ pub enum QualifiedClassName {
 }
 
 impl QualifiedClassName {
-    fn class_file(package: PackageName, class: JavaIdentifier) -> QualifiedClassName {
-        QualifiedClassName::ClassFile(package, class)
-    }
-
+    /// Like [`ClassFile`] except that the arguments are combined into a single pair.
+    ///
+    /// [`ClassFile`]: #variant.ClassFile
     fn class_file_pair(name: (PackageName, JavaIdentifier)) -> QualifiedClassName {
-        Self::class_file(name.0, name.1)
+        Self::ClassFile(name.0, name.1)
     }
 
+    /// Create a type representing an array of the primitive type `el_type`.
     fn primitive_array(el_type: PrimitiveValueType) -> QualifiedClassName {
         QualifiedClassName::Array(Either::Left(el_type))
     }
 
+    /// Create a type representing an array of the class type `el_type`.
     fn class_array(el_type: QualifiedClassName) -> QualifiedClassName {
         QualifiedClassName::Array(Either::Right(Box::new(el_type)))
     }
 
+    /// Parse `s` as a non-array class name.
     pub(crate) fn from_full_str(s: &str) -> Result<QualifiedClassName, NomBaseErr<&str>> {
         Ok(Self::class_file_pair(
             comb::all_consuming(sequence::pair(
@@ -51,6 +55,7 @@ impl QualifiedClassName {
         ))
     }
 
+    /// Convert the type name to the form used in Java class files.
     pub(crate) fn to_internal_form(&self) -> String {
         match self {
             QualifiedClassName::ClassFile(package, ucn) => {
@@ -69,6 +74,7 @@ impl QualifiedClassName {
         }
     }
 
+    /// Convert the type name to the form used in Java source files.
     #[expect(dead_code)]
     pub(crate) fn to_source_form(&self) -> String {
         match self {
@@ -90,8 +96,6 @@ impl QualifiedClassName {
 }
 
 impl<'i> NomParse<(), &'i str> for QualifiedClassName {
-    type Output = Self;
-
     fn nom_parse(_: (), s: Self::Input) -> IResult<Self::Input, Self> {
         branch::alt((
             comb::map(
@@ -100,7 +104,7 @@ impl<'i> NomParse<(), &'i str> for QualifiedClassName {
                     sequence::pair(PackageName::nom_parse_cf, JavaIdentifier::nom_parse_cf),
                     bytes::tag(";"),
                 ),
-                |(package, name)| QualifiedClassName::class_file(package, name),
+                QualifiedClassName::class_file_pair,
             ),
             comb::map(
                 sequence::preceded(
@@ -225,9 +229,7 @@ where
     &'i I: InputLength,
     &'i I: InputTake,
 {
-    type Output = Self;
-
-    fn nom_parse(available_types: Self::Env, s: Self::Input) -> IResult<Self::Input, Self> {
+    fn nom_parse(available_types: AvailableTypes, s: Self::Input) -> IResult<Self::Input, Self> {
         let mut value_type = comb::map(PrimitiveValueType::nom_parse_cf, Self::ValueType);
         if available_types.is_void_available() {
             branch::alt((comb::value(Self::Void, bytes::tag("V")), value_type))(s)
@@ -318,12 +320,7 @@ pub enum JavaType {
     /// A class type.
     Class(QualifiedClassName),
     /// A function type.
-    Method {
-        /// The argument types of the method.
-        arg_types: Box<Vec<JavaType>>,
-        /// The return type of the method.
-        ret_type: Box<JavaType>,
-    },
+    Method(JavaMethodType),
 }
 
 impl JavaType {
@@ -344,54 +341,27 @@ impl JavaType {
     /// Returns None if any element of `arg_types` is void or a function type or if `ret_type` is a
     /// function type. Otherwise produces a `JavaType::Method` value.
     pub fn mk_method(arg_types: Vec<JavaType>, ret_type: JavaType) -> Option<Self> {
-        for arg_type in &arg_types {
-            if arg_type.is_func() || arg_type.is_void() {
-                return None;
-            }
-        }
-        if ret_type.is_func() {
-            None
-        } else {
-            Some(Self::Method {
-                arg_types: Box::new(arg_types),
-                ret_type: Box::new(ret_type),
-            })
-        }
+        JavaMethodType::new(arg_types, ret_type).map(Self::Method)
     }
 
-    fn nom_method<'a>(
-        available_types: AvailableTypes,
-    ) -> impl Parser<&'a str, Self, Error<&'a str>> {
-        let arg_types = available_types.except_func().except_void();
-        let ret_types = available_types.except_func().and_void();
-        let arg_types = sequence::delimited(
-            bytes::tag("("),
-            multi::many0(move |s| JavaType::nom_parse(arg_types, s)),
-            bytes::tag(")"),
-        );
-        parsers::sane_cond(
-            available_types.is_func_available(),
-            comb::map_opt(
-                sequence::pair(arg_types, move |s| JavaType::nom_parse(ret_types, s)),
-                |(arg_types, ret_type)| Self::mk_method(arg_types, ret_type),
-            ),
-        )
-    }
-
+    /// Test whether the type is one of the primitive types.
     #[expect(dead_code)]
     fn is_primitive(&self) -> bool {
         matches!(self, Self::Primitive(_))
     }
 
+    /// Test whether the type is `void`.
     fn is_void(&self) -> bool {
         matches!(self, Self::Primitive(JavaPrimitive::Void))
     }
 
+    /// Test whether the type is a class type&mdash;either a normal class or an array.
     #[expect(dead_code)]
     fn is_class(&self) -> bool {
         matches!(self, Self::Class(_))
     }
 
+    /// Test whether the type is a function type.
     fn is_func(&self) -> bool {
         matches!(self, Self::Method { .. })
     }
@@ -399,36 +369,27 @@ impl JavaType {
     pub(crate) fn to_internal_form(&self) -> String {
         match self {
             Self::Primitive(primitive) => primitive.to_internal_form(),
-            Self::Class(qcn) => match qcn {
-                QualifiedClassName::ClassFile(..) => format!("L{};", qcn.to_internal_form()),
-                _ => qcn.to_internal_form(),
-            },
-            Self::Method {
-                arg_types,
-                ret_type,
-            } => format!(
-                "({}){}",
-                arg_types
-                    .iter()
-                    .map(JavaType::to_internal_form)
-                    .collect::<String>(),
-                ret_type.to_internal_form(),
-            ),
+            Self::Class(qcn @ QualifiedClassName::ClassFile(..)) => {
+                format!("L{};", qcn.to_internal_form())
+            }
+            Self::Class(qcn) => qcn.to_internal_form(),
+            Self::Method(jmt) => jmt.to_internal_form(),
         }
     }
 }
 
 impl<'i> NomParse<AvailableTypes, &'i str> for JavaType {
-    type Output = Self;
-
-    fn nom_parse(available_types: Self::Env, s: Self::Input) -> IResult<Self::Input, Self> {
+    fn nom_parse(available_types: AvailableTypes, s: Self::Input) -> IResult<Self::Input, Self> {
         branch::alt((
             comb::map(
                 |s| JavaPrimitive::nom_parse(available_types, s),
-                JavaType::Primitive,
+                Self::Primitive,
             ),
-            comb::map(QualifiedClassName::nom_parse_cf, JavaType::Class),
-            JavaType::nom_method(available_types),
+            comb::map(QualifiedClassName::nom_parse_cf, Self::Class),
+            comb::map(
+                |s| JavaMethodType::nom_parse(available_types, s),
+                Self::Method,
+            ),
         ))(s)
     }
 }
@@ -450,6 +411,68 @@ impl_from_str_for_nom_parse_cf!(JavaType);
 //         Ok(Self::nom_parse_full(AvailableTypes::All, s)?)
 //     }
 // }
+
+/// A Java method type. Method argument and return types cannot themselves be method types and
+/// method argument types also cannot be void.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct JavaMethodType {
+    /// The argument types of the method.
+    arg_types: Vec<JavaType>,
+    /// The return type of the method.
+    ret_type: Box<JavaType>,
+}
+
+impl JavaMethodType {
+    /// Returns None if any element of `arg_types` is void or a function type or if `ret_type` is a
+    /// function type.
+    pub fn new(arg_types: Vec<JavaType>, ret_type: JavaType) -> Option<Self> {
+        if arg_types
+            .iter()
+            .any(|arg_type| arg_type.is_func() || arg_type.is_void())
+            || ret_type.is_func()
+        {
+            None
+        } else {
+            Some(Self {
+                arg_types,
+                ret_type: Box::new(ret_type),
+            })
+        }
+    }
+
+    pub fn to_internal_form(&self) -> String {
+        format!(
+            "({}){}",
+            self.arg_types
+                .iter()
+                .map(JavaType::to_internal_form)
+                .collect::<String>(),
+            self.ret_type.to_internal_form(),
+        )
+    }
+}
+
+impl<'i> NomParse<AvailableTypes, &'i str> for JavaMethodType {
+    fn nom_parse(env: AvailableTypes, s: &'i str) -> IResult<&'i str, Self::Output> {
+        comb::map_opt(
+            comb::cond(
+                env.is_func_available(),
+                comb::map_opt(
+                    sequence::pair(
+                        sequence::delimited(
+                            bytes::tag("("),
+                            multi::many0(|s| JavaType::nom_parse(AvailableTypes::NoFuncNoVoid, s)),
+                            bytes::tag(")"),
+                        ),
+                        |s| JavaType::nom_parse(AvailableTypes::NoFunc, s),
+                    ),
+                    |(arg_types, ret_type)| Self::new(arg_types, ret_type),
+                ),
+            ),
+            |x| x,
+        )(s)
+    }
+}
 
 #[cfg(test)]
 mod test {

@@ -20,8 +20,8 @@ use std::{
 };
 
 use crate::{
-    parsers::{impl_from_str_for_nom_parse_cf, just, NomParse, NomParseContextFree},
-    types::{JavaType, PrimitiveValueType, QualifiedClassName},
+    parsers::{impl_from_str_for_nom_parse_cf, NomParse, NomParseContextFree},
+    types::{field::JavaFieldType, JavaType, PrimitiveValueType, QualifiedClassName},
     AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };
 
@@ -119,100 +119,146 @@ pub enum JavaOpCode {
     Nop,
     /// Pushes `null` onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., null ->
+    /// ```
     AconstNull,
     /// Pushes the `int` value -1 onto the stack. Equivalent to `bipush -1`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., -1 ->
+    /// ```
     IconstM1,
     /// Pushes the `int` value 0 onto the stack. Equivalent to `bipush 0`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 0 ->
+    /// ```
     Iconst0,
     /// Pushes the `int` value 1 onto the stack. Equivalent to `bipush 1`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 1 ->
+    /// ```
     Iconst1,
     /// Pushes the `int` value 2 onto the stack. Equivalent to `bipush 2`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 2 ->
+    /// ```
     Iconst2,
     /// Pushes the `int` value 3 onto the stack. Equivalent to `bipush 3`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 3 ->
+    /// ```
     Iconst3,
     /// Pushes the `int` value 4 onto the stack. Equivalent to `bipush 4`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 4 ->
+    /// ```
     Iconst4,
     /// Pushes the `int` value 5 onto the stack. Equivalent to `bipush 5`
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 5 ->
+    /// ```
     Iconst5,
     /// Pushes the `long` value 0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 0 ->
+    /// ```
     Lconst0,
     /// Pushes the `long` value 1 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 1 ->
+    /// ```
     Lconst1,
     /// Pushes the `float` value 0.0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 0.0 ->
+    /// ```
     Fconst0,
     /// Pushes the `float` value 1.0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 1.0 ->
+    /// ```
     Fconst1,
     /// Pushes the `float` value 2.0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 2.0 ->
+    /// ```
     Fconst2,
     /// Pushes the `double` value 0.0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 0.0 ->
+    /// ```
     Dconst0,
     /// Pushes the `double` value 1.0 onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., 1.0 ->
+    /// ```
     Dconst1,
     /// Sign-extends `value` to type `int` and pushes it onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
-    Bipush { value: u8 },
+    /// ```
+    Bipush {
+        /// The value to push.
+        value: i8,
+    },
+    /// Sign-extends `value` to type `int` and pushes it onto the stack.
+    /// # Operand stack:
+    /// ```
+    /// ... ->
+    ///
+    /// ..., value ->
+    /// ```
+    Sipush {
+        /// The value to push.
+        value: i16,
+    },
     /// Pushes a 4-byte `value` from the run-time constant pool onto the stack. The constant pool
     /// entry at index `index` must be either an `int`, a `float`, a reference to a string literal,
     /// or a symbolic reference to a class, a method type, or a method handle. The resolution of
@@ -223,249 +269,337 @@ pub enum JavaOpCode {
     ///   type, or a method handle, then the named object is resolved and a `reference` to the
     ///   resolved `Object` is pushed onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
-    Ldc { index: u8 },
+    /// ```
+    Ldc {
+        /// The index into the constant pool of the value to push.
+        index: u8,
+    },
     /// Like [`Ldc`], but has a 16-bit index instead of an 8-bit index.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     ///
     /// [`Ldc`]: #variant.Ldc
-    LdcW { index: u16 },
+    LdcW {
+        /// The index into the constant pool of the value to push.
+        index: u16,
+    },
     /// Pushes an 8-byte `value` onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Ldc2W {
         /// The value to push.
         value: Either<i64, f64>,
     },
     /// Pushes an `int` from a local variable onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Iload {
         /// The index into the local variable array.
         index: u8,
     },
     /// Pushes a `long` from a local variable onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Lload {
         /// The index into the local variable array.
         index: u8,
     },
     /// Pushes a `float` from a local variable onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Fload {
         /// The index into the local variable array.
         index: u8,
     },
     /// Pushes a `double` from a local variable onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Dload {
         /// The index into the local variable array.
         index: u8,
     },
     /// Pushes a `reference` from a local variable onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     Aload {
         /// The index into the local variable array.
         index: u8,
     },
     /// Like `iload 0`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Iload0,
     /// Like `iload 1`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Iload1,
     /// Like `iload 2`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Iload2,
     /// Like `iload 3`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Iload3,
     /// Like `lload 0`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Lload0,
     /// Like `lload 1`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Lload1,
     /// Like `lload 2`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Lload2,
     /// Like `lload 3`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Lload3,
     /// Like `fload 0`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Fload0,
     /// Like `fload 1`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Fload1,
     /// Like `fload 2`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Fload2,
     /// Like `fload 3`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Fload3,
     /// Like `dload 0`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Dload0,
     /// Like `dload 1`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Dload1,
     /// Like `dload 2`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Dload2,
     /// Like `dload 3`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Dload3,
     /// Like `aload 0`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     Aload0,
     /// Like `aload 1`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     Aload1,
     /// Like `aload 2`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     Aload2,
     /// Like `aload 3`.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     Aload3,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `int`. `index` must be an `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Iaload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `long`. `index` must be an `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Laload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `float`. `index` must be an `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Faload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `double`. `index` must be an `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Daload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `reference`. `index` must be an `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Aaload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is either byte or boolean. `index` must be an `int`. The loaded value is
     /// sign-extended before being pushed onto the stack.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Baload,
     /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
     /// element type is `char`. `index` must be an `int`. The loaded value is zero-extended before
     /// being pushed onto the stack.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index ->
     ///
     /// ..., value ->
+    /// ```
     Caload,
+    /// Gets the value at `arrayref[index]`. `arrayref` must be a `reference` to an array whose
+    /// element type is `short`. `index` must be an `int`. The loaded value is sign-extended before
+    /// being pushed onto the stack.
+    /// # Operand stack:
+    /// ```
+    /// ..., arrayref, index ->
+    ///
+    /// ..., value ->
+    /// ```
+    Saload,
     /// Set the local variable at `index` in the local variable array to be equal to `value`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Istore {
         /// The index into the local variable array.
         index: u8,
@@ -473,9 +607,11 @@ pub enum JavaOpCode {
     /// Set the local variable at `index` and `index+1` in the local variable array to be equal to
     /// `value`. `value` must be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Lstore {
         /// The index into the local variable array.
         index: u8,
@@ -483,9 +619,11 @@ pub enum JavaOpCode {
     /// Set the local variable at `index` in the local variable array to be equal to `value`.
     /// `value` must be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Fstore {
         /// The index into the local variable array.
         index: u8,
@@ -493,9 +631,11 @@ pub enum JavaOpCode {
     /// Set the local variable at `index` in the local variable array to be equal to `value`.
     /// `value` must be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Dstore {
         /// The index into the local variable array.
         index: u8,
@@ -503,220 +643,296 @@ pub enum JavaOpCode {
     /// Set the local variable at `index` in the local variable array to be equal to `objectref`.
     /// `objectref` must be of type `reference` or `returnAddress`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Astore {
         /// The index into the local variable array.
         index: u8,
     },
     /// Equivalent to `istore 0`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Istore0,
     /// Equivalent to `istore 1`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Istore1,
     /// Equivalent to `istore 2`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Istore2,
     /// Equivalent to `istore 3`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Istore3,
     /// Equivalent to `lstore 0`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Lstore0,
     /// Equivalent to `lstore 1`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Lstore1,
     /// Equivalent to `lstore 2`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Lstore2,
     /// Equivalent to `lstore 3`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Lstore3,
     /// Equivalent to `fstore 0`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Fstore0,
     /// Equivalent to `fstore 1`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Fstore1,
     /// Equivalent to `fstore 2`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Fstore2,
     /// Equivalent to `fstore 3`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Fstore3,
     /// Equivalent to `dstore 0`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Dstore0,
     /// Equivalent to `dstore 1`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Dstore1,
     /// Equivalent to `dstore 2`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Dstore2,
     /// Equivalent to `dstore 3`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Dstore3,
     /// Equivalent to `astore 0`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Astore0,
     /// Equivalent to `astore 1`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Astore1,
     /// Equivalent to `astore 2`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Astore2,
     /// Equivalent to `astore 3`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Astore3,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `int`. `index` must be an `int`. `value` must be a `int`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Iastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `long`. `index` must be an `int`. `value` must be a `long`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Lastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `float`. `index` must be an `int`. `value` must be a `float`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Fastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `double`. `index` must be an `int`. `value` must be a `double`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Dastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `reference`. `index` must be an `int`. `value` must be a
     /// `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Aastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is either byte or boolean. `index` and `value` must be `int`s.
     /// `value` is truncated before being stored.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Bastore,
     /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
     /// array whose element type is `char`. `index` and `value` must be `int`s. `value` is
     /// truncated before being stored.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref, index, value ->
     ///
     /// ... ->
+    /// ```
     Castore,
+    /// Sets the value at `arrayref[index]` to `value`. `arrayref` must be a `reference` to an
+    /// array whose element type is `short`. `index` and `value` must be `int`s. `value` is
+    /// truncated before being stored.
+    /// # Operand stack:
+    /// ```
+    /// ..., arrayref, index, value ->
+    ///
+    /// ... ->
+    /// ```
+    Sastore,
     /// Pops the top 4-byte value from the operand stack. `value` must be a 4-byte value.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Pop,
     /// Pops the top two 4-byte values or the top 8-byte value from the operand stack. `value` must
     /// be an 8-byte value. `value1` and `value2` must both be 4-byte values.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     ///
     /// *or*
     ///
+    /// ```
     /// ..., value2, value1 ->
     ///
     /// ... ->
+    /// ```
     Pop2,
     /// Duplicates the top 4-byte value on the stack. The type of `value` must be exactly 4 bytes
     /// in size. As of the Java Virtual Machine Specification for Java SE 7, that includes all
     /// types except `long` and `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., value, value ->
+    /// ```
     Dup,
     /// Duplicates the top 4-byte value on the stack and inserts the copy at the position third
     /// from the top. Both `value1` and `value2` must be exactly 4 bytes in size. As of the Java
     /// Virtual Machine Specification for Java SE 7, that includes all types except `long` and
     /// `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value2, value1 ->
     ///
     /// ..., value1, value2, value1 ->
+    /// ```
     DupX1,
     /// Duplicates the top 4-byte value on the stack and inserts the copy at the position fourth
     /// from the top. `value1` must be exactly 4 bytes in size. `value2` and `value3` must both be
@@ -724,9 +940,11 @@ pub enum JavaOpCode {
     /// Specification for Java SE 7, all types are 4 bytes in size except `long` and `double`,
     /// which are both 8 bytes.
     /// # Operand stack:
+    /// ```
     /// ..., value3, value2, value1 ->
     ///
     /// ..., value1, value3, value2, value1 ->
+    /// ```
     DupX2,
     /// Duplicates the top two 4-byte values on the stack and inserts the copies in the same order
     /// at the positions third and fourth from the top. `value1` and `value2` must both be exactly
@@ -734,9 +952,11 @@ pub enum JavaOpCode {
     /// Specification for Java SE 7, all types are 4 bytes in size except `long` and `double`,
     /// which are both 8 bytes.
     /// # Operand stack:
+    /// ```
     /// ..., value2, value1 ->
     ///
     /// ..., value2, value1, value2, value1 ->
+    /// ```
     Dup2,
     /// Duplicates the top two 4-byte values on the stack and inserts the copies in the same order
     /// at the positions fourth and fifth from the top. `value1` and `value2` must both be exactly
@@ -744,9 +964,11 @@ pub enum JavaOpCode {
     /// size. As of the Java Virtual Machine Specification for Java SE 7, all types are 4 bytes in
     /// size except `long` and `double`, which are both 8 bytes.
     /// # Operand stack:
+    /// ```
     /// ..., value3, value2, value1 ->
     ///
     /// ..., value2, value1, value3, value2, value1 ->
+    /// ```
     Dup2X1,
     /// Duplicates the top two 4-byte values on the stack and inserts the copies in the same order
     /// at the positions fifth and sixth from the top. `value1` and `value2` must both be exactly 4
@@ -755,268 +977,352 @@ pub enum JavaOpCode {
     /// Specification for Java SE 7, all types are 4 bytes in size except `long` and `double`,
     /// which are both 8 bytes.
     /// # Operand stack:
+    /// ```
     /// ..., value4, value3, value2, value1 ->
     ///
     /// ..., value2, value1, value4, value3, value2, value1 ->
+    /// ```
     Dup2X2,
+    /// Swap the top two values on the operand stack.
+    /// # Operand stack:
+    /// ```
+    /// ..., value2, value1 ->
+    ///
+    /// ..., value1, value2 ->
+    /// ```
+    Swap,
     /// Computes `value1 + value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Iadd,
     /// Computes `value1 + value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ladd,
     /// Computes `value1 + value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fadd,
     /// Computes `value1 + value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Dadd,
     /// Computes `value1 - value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Isub,
     /// Computes `value1 - value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lsub,
     /// Computes `value1 - value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fsub,
     /// Computes `value1 - value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Dsub,
     /// Computes `value1 * value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Imul,
     /// Computes `value1 * value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lmul,
     /// Computes `value1 * value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fmul,
     /// Computes `value1 * value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Dmul,
     /// Computes `value1 / value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Idiv,
     /// Computes `value1 / value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ldiv,
     /// Computes `value1 / value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fdiv,
     /// Computes `value1 / value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ddiv,
     /// Computes `value1 - value2 * (value1 / value2)` and pushes the result onto the stack.
     /// `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Irem,
     /// Computes `value1 - value2 * (value1 / value2)` and pushes the result onto the stack.
     /// `value1` and `value2` must both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lrem,
     /// Computes `value1 - value2 * q` and pushes the result onto the stack where
     /// `sign(q) == sign(value1 / value2)` and `abs(q) == floor(abs(value1 / value2))`. `value1` and
     /// `value2` must both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Frem,
     /// Computes `value1 - value2 * q` and pushes the result onto the stack where `sign(q) == -1`
     /// only if `sign(value1 / value2) == -1`, `sign(q) == 1` only if `sign(value1 / value2)`, and
     /// `abs(q) == floor(abs(value1 / value2))`. `value1` and `value2` must both be of type
     /// `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Drem,
     /// Computes `-value` and pushes the result onto the stack. `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     Ineg,
     /// Computes `-value` and pushes the result onto the stack. `value` must be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     Lneg,
     /// Computes `-value` and pushes the result onto the stack. `value` must be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     Fneg,
     /// Computes `-value` and pushes the result onto the stack. `value` must be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     Dneg,
     /// Compute `value1 << (value2 & 0x1F)` and push the result onto the stack. `value1` and
     /// `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ishl,
     /// Compute `value1 << (value2 & 0x3F)` and push the result onto the stack. `value1` must be of
     /// type 'long'. `value2` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lshl,
     /// Compute `value1 >> (value2 & 0x1F)` and push the result onto the stack. `value1` and
     /// `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ishr,
     /// Compute `value1 >> (value2 & 0x3F)` and push the result onto the stack. `value1` must be of
     /// type `long`. `value2` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lshr,
     /// Compute `value1 >>> (value2 & 0x1F)` and push the result onto the stack. `value1` and
     /// `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Iushr,
     /// Compute `value1 >>> (value2 & 0x3F)` and push the result onto the stack. `value1` must be
     /// of type `long`. `value2` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lushr,
     /// Computes `value1 & value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Iand,
     /// Computes `value1 & value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Land,
     /// Computes `value1 | value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ior,
     /// Computes `value1 | value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lor,
     /// Computes `value1 ^ value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Ixor,
     /// Computes `value1 ^ value2` and pushes the result onto the stack. `value1` and `value2` must
     /// both be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lxor,
     /// Increment the local variable at index `index` in the local variable array by `delta`. The
     /// local variable at index `index` must be of type `int`. `delta` is sign-extended before
     /// being added to the local variable.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ... ->
+    /// ```
     Iinc {
         /// The index into the local variable array.
         index: u8,
@@ -1026,158 +1332,200 @@ pub enum JavaOpCode {
     /// Converts a `int` value to a `long` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2l,
     /// Converts a `int` value to a `float` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2f,
     /// Converts a `int` value to a `double` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2d,
     /// Converts a `long` value to an `int` and pushes the result onto the stack. `value` must be
     /// of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     L2i,
     /// Converts a `long` value to a `float` and pushes the result onto the stack. `value` must be
     /// of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     L2f,
     /// Converts a `long` value to a `double` and pushes the result onto the stack. `value` must be
     /// of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     L2d,
     /// Converts a `float` value to an `int` and pushes the result onto the stack. `value` must be
     /// of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     F2i,
     /// Converts a `float` value to a `long` and pushes the result onto the stack. `value` must be
     /// of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// .., result ->
+    /// ```
     F2l,
     /// Converts a `float` value to a `double` and pushes the result onto the stack. `value` must
     /// be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     F2d,
     /// Converts a `double` value to an `int` and pushes the result onto the stack. `value` must be
     /// of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     D2i,
     /// Converts a `double` value to a `long` and pushes the result onto the stack. `value` must be
     /// of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     D2l,
     /// Convert a `double` value to a `float` and pushes the result onto the stack. `value` must be
     /// of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     D2f,
     /// Convert a `int` value to a `byte` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2b,
     /// Convert a `int` value to a `char` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2c,
     /// Convert a `int` value to a `short` and pushes the result onto the stack. `value` must be
     /// of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ..., result ->
+    /// ```
     I2s,
     /// Compares `value1` and `value2` and pushes the result onto the stack. The result of the
     /// comparison is the `int` with magnitude 0 or 1 and the same sign as `value1 - value2`.
     /// `value1` and `value2` must both be of type `long`.
     /// # Operand stack
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Lcmp,
     /// Compares `value1` and `value2` and pushes the result onto the stack. If `value1` is NaN or
     /// `value2` is NaN, then the result is -1. If `value1` is less than `value2`, then the result
     /// is -1. If `value1` is equal to `value2`, then the result is 0. If `value1` is greater than
     /// `value2`, then the result is 1. `value1` and `value2` must both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fcmpl,
     /// Compares `value1` and `value2` and pushes the result onto the stack. If `value1` is NaN or
     /// `value2` is NaN, then the result is 1. If `value1` is less than `value2`, then the result
     /// is -1. If `value1` is equal to `value2`, then the result is 0. If `value1` is greater than
     /// `value2`, then the result is 1. `value1` and `value2` must both be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Fcmpg,
     /// Compares `value1` and `value2` and pushes the result onto the stack. If `value1` is NaN or
     /// `value2` is NaN, then the result is -1. If `value1` is less than `value2`, then the result
     /// is -1. If `value1` is equal to `value2`, then the result is 0. If `value1` is greater than
     /// `value2`, then the result is 1. `value1` and `value2` must both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Dcmpl,
     /// Compares `value1` and `value2` and pushes the result onto the stack. If `value1` is NaN or
     /// `value2` is NaN, then the result is 1. If `value1` is less than `value2`, then the result
     /// is -1. If `value1` is equal to `value2`, then the result is 0. If `value1` is greater than
     /// `value2`, then the result is 1. `value1` and `value2` must both be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ..., result ->
+    /// ```
     Dcmpg,
     /// Jump to the specified offset relative to the address of this instruction if `value == 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifeq {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1185,9 +1533,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value != 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifne {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1195,9 +1545,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value < 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Iflt {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1205,9 +1557,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value >= 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifge {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1215,9 +1569,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value > 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifgt {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1225,9 +1581,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value <= 0`.
     /// `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifle {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1235,9 +1593,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 ==
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmpeq {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1245,9 +1605,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 !=
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmpne {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1255,9 +1617,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 <
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmplt {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1265,9 +1629,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 >=
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmpge {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1275,9 +1641,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 >
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmpgt {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1285,9 +1653,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 <=
     /// value2`. `value1` and `value2` must both be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfIcmple {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1295,9 +1665,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 ==
     /// value2`. `value1` and `value2` must both be of type `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfAcmpeq {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1305,18 +1677,22 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value1 !=
     /// value2`. `value1` and `value2` must both be of type `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., value1, value2 ->
     ///
     /// ... ->
+    /// ```
     IfAcmpne {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
     },
     /// Unconditionally jump to the specified offset relative to the address of this instruction.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ... ->
+    /// ```
     Goto {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1326,23 +1702,59 @@ pub enum JavaOpCode {
     /// the current function.
     ///
     /// This instruction has historically been used in Oracle's implementation of the Java compiler
-    /// for the `finally` clause in versions of the compiler before Java SE 6.
+    /// for the `finally` clause in versions of the compiler before Java SE 6. It is *not
+    /// permitted* to appear in `Code` attributes for classes with major version greater than 50.
     ///
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., address ->
+    /// ```
     Jsr {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
+    },
+    /// Jumps to the address stored in local variable `index`. As addresses for use with `Ret` can
+    /// only be generated by [`Jsr`] and [`JsrW`] instructions, a `Code` attribute in a class file
+    /// with major version greater than 50 is malformed if it contains a `Ret` instruction, even
+    /// though `Ret` is not explicitly forbidden.
+    /// # Operand stack:
+    /// ```
+    /// ... ->
+    ///
+    /// ... ->
+    /// ```
+    ///
+    /// [`Jsr`]: #variant.Jsr
+    /// [`JsrW`]: #variant.JsrW
+    Ret {
+        /// The index of the local variable where the target address was stored.
+        index: u8,
+    },
+    /// Access jump table by index and jump.
+    ///
+    /// If `(low..=high).contains(&index)` jump forward by `offsets[index - low]` bytes. Otherwise
+    /// jump forward by `default` bytes.
+    Tableswitch {
+        /// The default offset for the jump if `index` is too low or too high.
+        default: i32,
+        /// The minimum value of `index` that will be used to access `offsets`.
+        low: i32,
+        /// The maximum value of `index` that will be used to access `offsets`.
+        high: i32,
+        /// The offsets for when `index` is in the range `low..=high`.
+        offsets: Vec<i32>,
     },
     /// Access jump table and jump. If there is some `(match, offset)` pair in `match_offsets` such
     /// that `match == key`, jump to `offset`. Otherwise, jump to `default_offset`. The elements `e`
     /// of `match_offsets` must be such that `e.0` is monotonically increasing.
     /// # Operand stack:
+    /// ```
     /// ..., key ->
     ///
     /// ... ->
+    /// ```
     Lookupswitch {
         /// The offset of the `default` label for the switch statement.
         default_offset: i32,
@@ -1351,49 +1763,81 @@ pub enum JavaOpCode {
     },
     /// Return an `int` from a function. `value` must be of type `int`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// <no stack>
+    /// ```
     Ireturn,
     /// Return a `long` from a function. `value` must be of type `long`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// <no stack>
+    /// ```
     Lreturn,
     /// Return a `float` from a function. `value` must be of type `float`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// <no stack>
+    /// ```
     Freturn,
     /// Return a `double` from a function. `value` must be of type `double`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// <no stack>
+    /// ```
     Dreturn,
     /// Return a `reference` from a function.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// <no stack>
+    /// ```
     Areturn,
+    /// Return `void` from a function.
+    /// # Operand stack:
+    /// ```
+    /// ... ->
+    /// <no stack>
+    /// ```
+    Return,
     /// Read the specified static field and push the result onto the stack.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., value ->
+    /// ```
     Getstatic {
         /// A symbolic reference to the static field to read.
+        field: FieldRef,
+    },
+    /// Write the top value from the operand stack into the specified static field.
+    /// # Operand stack:
+    /// ```
+    /// ..., value ->
+    ///
+    /// ... ->
+    /// ```
+    Putstatic {
+        /// A symbolic reference to the static field to write.
         field: FieldRef,
     },
     /// Read the specified (non-static) field from `objectref` and push the result onto the stack.
     /// `objectref` must be a `reference` to a type which is a subclass of `field.owner()`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ..., value ->
+    /// ```
     Getfield {
         /// A symbolic reference to the instance field to read.
         field: FieldRef,
@@ -1406,9 +1850,11 @@ pub enum JavaOpCode {
     /// a `reference` to an instance of that type. If `field` is `final`, the current method must
     /// be `<init>` of `field.owner()`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref, value ->
     ///
     /// ... ->
+    /// ```
     Putfield {
         /// A symbolic reference to the instance field to write.
         field: FieldRef,
@@ -1419,9 +1865,11 @@ pub enum JavaOpCode {
     /// particular, Invokespecial starts at the owner of the method reference whereas Invokevirtual
     /// starts at the runtime class of `objectref`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref, [arg1, [arg2, [...]]] ->
     ///
     /// ... ->
+    /// ```
     Invokevirtual {
         /// A symbolic reference to the instance method to invoke.
         method: MethodRef,
@@ -1432,27 +1880,67 @@ pub enum JavaOpCode {
     /// particular, Invokespecial starts at the owner of the method reference whereas Invokevirtual
     /// starts at the runtime class of `objectref`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref, [arg1, [arg2, [...]]] ->
     ///
     /// ... ->
+    /// ```
     Invokespecial {
         /// A symbolic reference to the instance method to invoke.
         method: MethodRef,
     },
     /// Invoke static method.
     /// # Operand stack:
+    /// ```
     /// ..., [arg1, [arg2, [...]]] ->
     ///
     /// ... ->
+    /// ```
     Invokestatic {
         /// A symbolic reference to the static method to invoke.
         method: MethodRef,
     },
+    /// Call `interface.method_name([arg1, [arg2, ...]])`. If the actual class of `this` contains a
+    /// method named `method_name` with type `method_type`, that is the actual method invoked.
+    /// Otherwise, try again as though the immediate superclass of the actual class of `this` were
+    /// the actual class of `this`. If this process reaches `java.lang.Object` and still can't find
+    /// a method with the correct name and type, an `AbstractMethodError` is raised.
+    ///
+    /// If the method is synchronized, the JVM inserts an implicit [`Self::Monitorenter`]
+    /// instruction that operates on `this`.
+    ///
+    /// If the method is not native, the arguments are popped from the operand stack and placed
+    /// into the local variables of a new stack frame with `this` at local variable 0 and the rest
+    /// of the arguments following it in order. If the method is not FP-strict, any floating-point
+    /// arguments are subject to value set conversion. The new stack frame is then made the current
+    /// stack frame and the JVM's program counter is set to the first instruction of the method.
+    ///
+    /// If the method is native, the JVM ensures that the implementation is loaded then pops the
+    /// arguments off of the operand stack and passes them to the native code. Any floating-point
+    /// arguments are subject to value set conversion before they are passed to the native code.
+    /// When the native code returns, if the method is synchronized the JVM inserts an implicit
+    /// [`Self::Monitorexit`] instruction that operates on `this`. The return value is converted to
+    /// the declared return type of the method and pushed onto the operand stack (unless it's void).
+    /// # Operand stack:
+    /// ```
+    /// ..., this, [arg1, [arg2, ...]] ->
+    ///
+    /// ..., [return_value] ->
+    /// ```
+    Invokeinterface {
+        /// A symbolic reference to the method to invoke.
+        method: MethodRef,
+        /// The number of bytes to be popped off of the operand stack. This value can be derived
+        /// from `method_type`.
+        num_arg_bytes: u8,
+    },
     /// TODO: comprehend description
     /// # Operand stack:
+    /// ```
     /// ..., [arg1, [arg2, [...]]] ->
     ///
     /// ... ->
+    /// ```
     Invokedynamic {
         /// The index into the `bootstrap_methods` list of the `BootstrapMethods` attribute of the
         /// current class of the method to call.
@@ -1466,9 +1954,11 @@ pub enum JavaOpCode {
     /// `index` in the runtime constant pool. All instance variables of the class are initialized
     /// to their default values.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., objectref ->
+    /// ```
     New {
         /// The type to instantiate.
         type_name: QualifiedClassName,
@@ -1476,9 +1966,11 @@ pub enum JavaOpCode {
     /// Create a new array with element type `type` of length `count`. Initialize each element of
     /// the created array to the default value.
     /// # Operand stack:
+    /// ```
     /// ..., count ->
     ///
     /// ..., arrayref ->
+    /// ```
     Newarray {
         /// The element type of the array to create.
         r#type: PrimitiveValueType,
@@ -1487,34 +1979,42 @@ pub enum JavaOpCode {
     /// an `int`. `el_type` must be a qualified class name (non-primitive type) from the constant
     /// pool.
     /// # Operand stack:
+    /// ```
     /// ..., count ->
     ///
     /// ..., arrayref ->
+    /// ```
     Anewarray {
         /// The element type of the array to create.
         el_type: QualifiedClassName,
     },
     /// Compute `arrayref.length`, where `arrayref` is a `reference` to an array.
     /// # Operand stack:
+    /// ```
     /// ..., arrayref ->
     ///
     /// ..., length ->
+    /// ```
     Arraylength,
     /// Throw the `Throwable` referred to by `objectref`. `objectref` must be a `reference` to a
     /// `Throwable`. If no exception handler in the current stack frame can handle the object
     /// referred to by `objectref`, then the current stack frame is popped and `objectref` is
     /// rethrown.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// objectref ->
+    /// ```
     Athrow,
     /// Asserts that `objectref` is either `null` or an instance of `type_name`. If the assertion
     /// fails, a `ClassCastException` is thrown.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ..., objectref ->
+    /// ```
     Checkcast {
         /// The type to assert that `objectref` is an instance of.
         type_name: QualifiedClassName,
@@ -1523,9 +2023,11 @@ pub enum JavaOpCode {
     /// `reference`. If `objectref` is a reference to an instance of a subtype of `type_name`, then
     /// `result` is 1, otherwise `result` is 0.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ..., result ->
+    /// ```
     Instanceof {
         /// The type to check that `objectref` is an instance of.
         type_name: QualifiedClassName,
@@ -1533,17 +2035,52 @@ pub enum JavaOpCode {
     /// Acquire the (re-entrant) lock associated with `objectref`. `objectref` must be of type
     /// `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Monitorenter,
     /// Release the (re-entrant) lock associated with `objectref`. `objectref` must be of type
     /// `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., objectref ->
     ///
     /// ... ->
+    /// ```
     Monitorexit,
+    /// Modifies [`Iload`], [`Fload`], [`Aload`], [`Lload`], [`Dload`], [`Istore`] [`Fstore`],
+    /// [`Astore`], [`Lstore`], [`Dstore`], or [`Ret`] to operate on a 16-bit index instead of an
+    /// 8-bit index.
+    ///
+    /// [`Iload`]: #variant.Iload
+    /// [`Fload`]: #variant.Fload
+    /// [`Aload`]: #variant.Aload
+    /// [`Lload`]: #variant.Lload
+    /// [`Dload`]: #variant.Dload
+    /// [`Istore`]: #variant.Istore
+    /// [`Fstore`]: #variant.Fstore
+    /// [`Astore`]: #variant.Astore
+    /// [`Lstore`]: #variant.Lstore
+    /// [`Dstore`]: #variant.Dstore
+    /// [`Ret`]: #variant.Ret
+    Wide {
+        /// The instruction that this instruction modifies.
+        opcode: WideOpCode,
+        /// The index that `opcode` operates on.
+        index: u16,
+    },
+    /// Like [`Wide`] but modifies [`Iinc`].
+    ///
+    /// [`Wide`]: #variant.Wide
+    /// [`Iinc`]: #variant.Iinc
+    WideIinc {
+        /// The index into the local variable array.
+        index: u16,
+        /// The value to add to the local variable.
+        delta: i16,
+    },
     /// Create a new array with at least `dimensions` dimensions. The constant pool entry at index
     /// `index` must be a symbolic reference to an array type with at least `dimensions`
     /// dimensions. Create a new array with that type and length `count1`. Each subarray for which
@@ -1551,9 +2088,11 @@ pub enum JavaOpCode {
     /// for which there is an associated `count` has all of its elements initialized to the default
     /// value of its element type.
     /// # Operand stack:
+    /// ```
     /// ..., count1, [count2, ...] ->
     ///
     /// ..., arrayref ->
+    /// ```
     Multianewarray {
         /// The actual type of the array to create. Must have at least `dimensions` dimensions.
         /// TODO: convert to owned type.
@@ -1566,9 +2105,11 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value ==
     /// null`. `value` must be of type `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifnull {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
@@ -1576,18 +2117,22 @@ pub enum JavaOpCode {
     /// Jump to the specified offset relative to the address of this instruction if `value !=
     /// null`. `value` must be of type `reference`.
     /// # Operand stack:
+    /// ```
     /// ..., value ->
     ///
     /// ... ->
+    /// ```
     Ifnonnull {
         /// The offset relative to the address of this instruction to jump to.
         offset: i16,
     },
     /// Jump to the specified offset relative to the current address.
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ... ->
+    /// ```
     GotoW {
         /// The offset relative to the address of this instruction to jump to. Due to current
         /// constraints on method size, `offset.abs()` should never be too large to fit into a
@@ -1599,12 +2144,15 @@ pub enum JavaOpCode {
     /// the current function.
     ///
     /// This instruction has historically been used in Oracle's implementation of the Java compiler
-    /// for the `finally` clause in versions of the compiler before Java SE 6.
+    /// for the `finally` clause in versions of the compiler before Java SE 6. It is *not
+    /// permitted* to appear in `Code` attributes for classes with major version greater than 50.
     ///
     /// # Operand stack:
+    /// ```
     /// ... ->
     ///
     /// ..., address ->
+    /// ```
     JsrW {
         /// The offset relative to the address of this instruction to jump to. Due to current
         /// constraints on method size, `offset.abs()` should never be too large to fit into a
@@ -1614,6 +2162,9 @@ pub enum JavaOpCode {
 }
 
 impl JavaOpCode {
+    /// The first (and only) byte of the [`Nop`] instruction.
+    ///
+    /// [`Nop`]: #variant.Nop
     const NOP: u8 = 0x00;
     const ACONST_NULL: u8 = 0x01;
     const ICONST_M1: u8 = 0x02;
@@ -1632,7 +2183,7 @@ impl JavaOpCode {
     const DCONST_1: u8 = 0x0F;
 
     const BIPUSH: u8 = 0x10;
-    const _11: u8 = 0x11;
+    const SIPUSH: u8 = 0x11;
     const LDC: u8 = 0x12;
     const LDC_W: u8 = 0x13;
     const LDC2_W: u8 = 0x14;
@@ -1670,7 +2221,7 @@ impl JavaOpCode {
     const AALOAD: u8 = 0x32;
     const BALOAD: u8 = 0x33;
     const CALOAD: u8 = 0x34;
-    const _35: u8 = 0x35;
+    const SALOAD: u8 = 0x35;
     const ISTORE: u8 = 0x36;
     const LSTORE: u8 = 0x37;
     const FSTORE: u8 = 0x38;
@@ -1705,7 +2256,7 @@ impl JavaOpCode {
     const AASTORE: u8 = 0x53;
     const BASTORE: u8 = 0x54;
     const CASTORE: u8 = 0x55;
-    const _56: u8 = 0x56;
+    const SASTORE: u8 = 0x56;
     const POP: u8 = 0x57;
     const POP2: u8 = 0x58;
     const DUP: u8 = 0x59;
@@ -1714,7 +2265,7 @@ impl JavaOpCode {
     const DUP2: u8 = 0x5C;
     const DUP2_X1: u8 = 0x5D;
     const DUP2_X2: u8 = 0x5E;
-    const _5F: u8 = 0x5F;
+    const SWAP: u8 = 0x5F;
 
     const IADD: u8 = 0x60;
     const LADD: u8 = 0x61;
@@ -1793,8 +2344,8 @@ impl JavaOpCode {
     const IF_ACMPNE: u8 = 0xA6;
     const GOTO: u8 = 0xA7;
     const JSR: u8 = 0xA8;
-    const _A9: u8 = 0xA9;
-    const _AA: u8 = 0xAA;
+    const RET: u8 = 0xA9;
+    const TABLESWITCH: u8 = 0xAA;
     const LOOKUPSWITCH: u8 = 0xAB;
     const IRETURN: u8 = 0xAC;
     const LRETURN: u8 = 0xAD;
@@ -1802,15 +2353,15 @@ impl JavaOpCode {
     const DRETURN: u8 = 0xAF;
 
     const ARETURN: u8 = 0xB0;
-    const _B1: u8 = 0xB1;
+    const RETURN: u8 = 0xB1;
     const GETSTATIC: u8 = 0xB2;
-    const _B3: u8 = 0xB3;
+    const PUTSTATIC: u8 = 0xB3;
     const GETFIELD: u8 = 0xB4;
     const PUTFIELD: u8 = 0xB5;
     const INVOKEVIRTUAL: u8 = 0xB6;
     const INVOKESPECIAL: u8 = 0xB7;
     const INVOKESTATIC: u8 = 0xB8;
-    const _B9: u8 = 0xB9;
+    const INVOKEINTERFACE: u8 = 0xB9;
     const INVOKEDYNAMIC: u8 = 0xBA;
     const NEW: u8 = 0xBB;
     const NEWARRAY: u8 = 0xBC;
@@ -1822,7 +2373,7 @@ impl JavaOpCode {
     const INSTANCEOF: u8 = 0xC1;
     const MONITORENTER: u8 = 0xC2;
     const MONITOREXIT: u8 = 0xC3;
-    const _C4: u8 = 0xC4;
+    const WIDE: u8 = 0xC4;
     const MULTIANEWARRAY: u8 = 0xC5;
     const IFNULL: u8 = 0xC6;
     const IFNONNULL: u8 = 0xC7;
@@ -1888,634 +2439,699 @@ impl JavaOpCode {
 
     fn len(&self, position: u16) -> u16 {
         match self {
-            JavaOpCode::Nop
-            | JavaOpCode::AconstNull
-            | JavaOpCode::IconstM1
-            | JavaOpCode::Iconst0
-            | JavaOpCode::Iconst1
-            | JavaOpCode::Iconst2
-            | JavaOpCode::Iconst3
-            | JavaOpCode::Iconst4
-            | JavaOpCode::Iconst5
-            | JavaOpCode::Lconst0
-            | JavaOpCode::Lconst1
-            | JavaOpCode::Fconst0
-            | JavaOpCode::Fconst1
-            | JavaOpCode::Fconst2
-            | JavaOpCode::Dconst0
-            | JavaOpCode::Dconst1
-            | JavaOpCode::Iload0
-            | JavaOpCode::Iload1
-            | JavaOpCode::Iload2
-            | JavaOpCode::Iload3
-            | JavaOpCode::Lload0
-            | JavaOpCode::Lload1
-            | JavaOpCode::Lload2
-            | JavaOpCode::Lload3
-            | JavaOpCode::Fload0
-            | JavaOpCode::Fload1
-            | JavaOpCode::Fload2
-            | JavaOpCode::Fload3
-            | JavaOpCode::Dload0
-            | JavaOpCode::Dload1
-            | JavaOpCode::Dload2
-            | JavaOpCode::Dload3
-            | JavaOpCode::Aload0
-            | JavaOpCode::Aload1
-            | JavaOpCode::Aload2
-            | JavaOpCode::Aload3
-            | JavaOpCode::Iaload
-            | JavaOpCode::Laload
-            | JavaOpCode::Faload
-            | JavaOpCode::Daload
-            | JavaOpCode::Aaload
-            | JavaOpCode::Baload
-            | JavaOpCode::Caload
-            | JavaOpCode::Istore0
-            | JavaOpCode::Istore1
-            | JavaOpCode::Istore2
-            | JavaOpCode::Istore3
-            | JavaOpCode::Lstore0
-            | JavaOpCode::Lstore1
-            | JavaOpCode::Lstore2
-            | JavaOpCode::Lstore3
-            | JavaOpCode::Fstore0
-            | JavaOpCode::Fstore1
-            | JavaOpCode::Fstore2
-            | JavaOpCode::Fstore3
-            | JavaOpCode::Dstore0
-            | JavaOpCode::Dstore1
-            | JavaOpCode::Dstore2
-            | JavaOpCode::Dstore3
-            | JavaOpCode::Astore0
-            | JavaOpCode::Astore1
-            | JavaOpCode::Astore2
-            | JavaOpCode::Astore3
-            | JavaOpCode::Iastore
-            | JavaOpCode::Lastore
-            | JavaOpCode::Fastore
-            | JavaOpCode::Dastore
-            | JavaOpCode::Aastore
-            | JavaOpCode::Bastore
-            | JavaOpCode::Castore
-            | JavaOpCode::Pop
-            | JavaOpCode::Pop2
-            | JavaOpCode::Dup
-            | JavaOpCode::DupX1
-            | JavaOpCode::DupX2
-            | JavaOpCode::Dup2
-            | JavaOpCode::Dup2X1
-            | JavaOpCode::Dup2X2
-            | JavaOpCode::Iadd
-            | JavaOpCode::Ladd
-            | JavaOpCode::Fadd
-            | JavaOpCode::Dadd
-            | JavaOpCode::Isub
-            | JavaOpCode::Lsub
-            | JavaOpCode::Fsub
-            | JavaOpCode::Dsub
-            | JavaOpCode::Imul
-            | JavaOpCode::Lmul
-            | JavaOpCode::Fmul
-            | JavaOpCode::Dmul
-            | JavaOpCode::Idiv
-            | JavaOpCode::Ldiv
-            | JavaOpCode::Fdiv
-            | JavaOpCode::Ddiv
-            | JavaOpCode::Irem
-            | JavaOpCode::Lrem
-            | JavaOpCode::Frem
-            | JavaOpCode::Drem
-            | JavaOpCode::Ineg
-            | JavaOpCode::Lneg
-            | JavaOpCode::Fneg
-            | JavaOpCode::Dneg
-            | JavaOpCode::Ishl
-            | JavaOpCode::Lshl
-            | JavaOpCode::Ishr
-            | JavaOpCode::Lshr
-            | JavaOpCode::Iushr
-            | JavaOpCode::Lushr
-            | JavaOpCode::Iand
-            | JavaOpCode::Land
-            | JavaOpCode::Ior
-            | JavaOpCode::Lor
-            | JavaOpCode::Ixor
-            | JavaOpCode::Lxor
-            | JavaOpCode::I2l
-            | JavaOpCode::I2f
-            | JavaOpCode::I2d
-            | JavaOpCode::L2i
-            | JavaOpCode::L2f
-            | JavaOpCode::L2d
-            | JavaOpCode::F2i
-            | JavaOpCode::F2l
-            | JavaOpCode::F2d
-            | JavaOpCode::D2i
-            | JavaOpCode::D2l
-            | JavaOpCode::D2f
-            | JavaOpCode::I2b
-            | JavaOpCode::I2c
-            | JavaOpCode::I2s
-            | JavaOpCode::Lcmp
-            | JavaOpCode::Fcmpl
-            | JavaOpCode::Fcmpg
-            | JavaOpCode::Dcmpl
-            | JavaOpCode::Dcmpg
-            | JavaOpCode::Ireturn
-            | JavaOpCode::Lreturn
-            | JavaOpCode::Freturn
-            | JavaOpCode::Dreturn
-            | JavaOpCode::Areturn
-            | JavaOpCode::Arraylength
-            | JavaOpCode::Athrow
-            | JavaOpCode::Monitorenter
-            | JavaOpCode::Monitorexit => 1,
-            JavaOpCode::Bipush { .. }
-            | JavaOpCode::Ldc { .. }
-            | JavaOpCode::Iload { .. }
-            | JavaOpCode::Lload { .. }
-            | JavaOpCode::Fload { .. }
-            | JavaOpCode::Dload { .. }
-            | JavaOpCode::Aload { .. }
-            | JavaOpCode::Istore { .. }
-            | JavaOpCode::Lstore { .. }
-            | JavaOpCode::Fstore { .. }
-            | JavaOpCode::Dstore { .. }
-            | JavaOpCode::Astore { .. }
-            | JavaOpCode::Newarray { .. } => 2,
-            JavaOpCode::LdcW { .. }
-            | JavaOpCode::Ldc2W { .. }
-            | JavaOpCode::Iinc { .. }
-            | JavaOpCode::Ifeq { .. }
-            | JavaOpCode::Ifne { .. }
-            | JavaOpCode::Iflt { .. }
-            | JavaOpCode::Ifge { .. }
-            | JavaOpCode::Ifgt { .. }
-            | JavaOpCode::Ifle { .. }
-            | JavaOpCode::IfIcmpeq { .. }
-            | JavaOpCode::IfIcmpne { .. }
-            | JavaOpCode::IfIcmplt { .. }
-            | JavaOpCode::IfIcmpge { .. }
-            | JavaOpCode::IfIcmpgt { .. }
-            | JavaOpCode::IfIcmple { .. }
-            | JavaOpCode::IfAcmpeq { .. }
-            | JavaOpCode::IfAcmpne { .. }
-            | JavaOpCode::Goto { .. }
-            | JavaOpCode::Jsr { .. }
-            | JavaOpCode::Getstatic { .. }
-            | JavaOpCode::Getfield { .. }
-            | JavaOpCode::Putfield { .. }
-            | JavaOpCode::Invokevirtual { .. }
-            | JavaOpCode::Invokespecial { .. }
-            | JavaOpCode::Invokestatic { .. }
-            | JavaOpCode::New { .. }
-            | JavaOpCode::Anewarray { .. }
-            | JavaOpCode::Checkcast { .. }
-            | JavaOpCode::Instanceof { .. }
-            | JavaOpCode::Ifnull { .. }
-            | JavaOpCode::Ifnonnull { .. } => 3,
-            JavaOpCode::Multianewarray { .. } => 4,
-            JavaOpCode::Invokedynamic { .. }
-            | JavaOpCode::GotoW { .. }
-            | JavaOpCode::JsrW { .. } => 5,
-            JavaOpCode::Lookupswitch {
+            Self::Nop
+            | Self::AconstNull
+            | Self::IconstM1
+            | Self::Iconst0
+            | Self::Iconst1
+            | Self::Iconst2
+            | Self::Iconst3
+            | Self::Iconst4
+            | Self::Iconst5
+            | Self::Lconst0
+            | Self::Lconst1
+            | Self::Fconst0
+            | Self::Fconst1
+            | Self::Fconst2
+            | Self::Dconst0
+            | Self::Dconst1
+            | Self::Iload0
+            | Self::Iload1
+            | Self::Iload2
+            | Self::Iload3
+            | Self::Lload0
+            | Self::Lload1
+            | Self::Lload2
+            | Self::Lload3
+            | Self::Fload0
+            | Self::Fload1
+            | Self::Fload2
+            | Self::Fload3
+            | Self::Dload0
+            | Self::Dload1
+            | Self::Dload2
+            | Self::Dload3
+            | Self::Aload0
+            | Self::Aload1
+            | Self::Aload2
+            | Self::Aload3
+            | Self::Iaload
+            | Self::Laload
+            | Self::Faload
+            | Self::Daload
+            | Self::Aaload
+            | Self::Baload
+            | Self::Caload
+            | Self::Saload
+            | Self::Istore0
+            | Self::Istore1
+            | Self::Istore2
+            | Self::Istore3
+            | Self::Lstore0
+            | Self::Lstore1
+            | Self::Lstore2
+            | Self::Lstore3
+            | Self::Fstore0
+            | Self::Fstore1
+            | Self::Fstore2
+            | Self::Fstore3
+            | Self::Dstore0
+            | Self::Dstore1
+            | Self::Dstore2
+            | Self::Dstore3
+            | Self::Astore0
+            | Self::Astore1
+            | Self::Astore2
+            | Self::Astore3
+            | Self::Iastore
+            | Self::Lastore
+            | Self::Fastore
+            | Self::Dastore
+            | Self::Aastore
+            | Self::Bastore
+            | Self::Castore
+            | Self::Sastore
+            | Self::Pop
+            | Self::Pop2
+            | Self::Dup
+            | Self::DupX1
+            | Self::DupX2
+            | Self::Dup2
+            | Self::Dup2X1
+            | Self::Dup2X2
+            | Self::Swap
+            | Self::Iadd
+            | Self::Ladd
+            | Self::Fadd
+            | Self::Dadd
+            | Self::Isub
+            | Self::Lsub
+            | Self::Fsub
+            | Self::Dsub
+            | Self::Imul
+            | Self::Lmul
+            | Self::Fmul
+            | Self::Dmul
+            | Self::Idiv
+            | Self::Ldiv
+            | Self::Fdiv
+            | Self::Ddiv
+            | Self::Irem
+            | Self::Lrem
+            | Self::Frem
+            | Self::Drem
+            | Self::Ineg
+            | Self::Lneg
+            | Self::Fneg
+            | Self::Dneg
+            | Self::Ishl
+            | Self::Lshl
+            | Self::Ishr
+            | Self::Lshr
+            | Self::Iushr
+            | Self::Lushr
+            | Self::Iand
+            | Self::Land
+            | Self::Ior
+            | Self::Lor
+            | Self::Ixor
+            | Self::Lxor
+            | Self::I2l
+            | Self::I2f
+            | Self::I2d
+            | Self::L2i
+            | Self::L2f
+            | Self::L2d
+            | Self::F2i
+            | Self::F2l
+            | Self::F2d
+            | Self::D2i
+            | Self::D2l
+            | Self::D2f
+            | Self::I2b
+            | Self::I2c
+            | Self::I2s
+            | Self::Lcmp
+            | Self::Fcmpl
+            | Self::Fcmpg
+            | Self::Dcmpl
+            | Self::Dcmpg
+            | Self::Ireturn
+            | Self::Lreturn
+            | Self::Freturn
+            | Self::Dreturn
+            | Self::Areturn
+            | Self::Return
+            | Self::Arraylength
+            | Self::Athrow
+            | Self::Monitorenter
+            | Self::Monitorexit => 1,
+            Self::Bipush { .. }
+            | Self::Ldc { .. }
+            | Self::Iload { .. }
+            | Self::Lload { .. }
+            | Self::Fload { .. }
+            | Self::Dload { .. }
+            | Self::Aload { .. }
+            | Self::Istore { .. }
+            | Self::Lstore { .. }
+            | Self::Fstore { .. }
+            | Self::Dstore { .. }
+            | Self::Astore { .. }
+            | Self::Ret { .. }
+            | Self::Newarray { .. } => 2,
+            Self::Sipush { .. }
+            | Self::LdcW { .. }
+            | Self::Ldc2W { .. }
+            | Self::Iinc { .. }
+            | Self::Ifeq { .. }
+            | Self::Ifne { .. }
+            | Self::Iflt { .. }
+            | Self::Ifge { .. }
+            | Self::Ifgt { .. }
+            | Self::Ifle { .. }
+            | Self::IfIcmpeq { .. }
+            | Self::IfIcmpne { .. }
+            | Self::IfIcmplt { .. }
+            | Self::IfIcmpge { .. }
+            | Self::IfIcmpgt { .. }
+            | Self::IfIcmple { .. }
+            | Self::IfAcmpeq { .. }
+            | Self::IfAcmpne { .. }
+            | Self::Goto { .. }
+            | Self::Jsr { .. }
+            | Self::Getstatic { .. }
+            | Self::Putstatic { .. }
+            | Self::Getfield { .. }
+            | Self::Putfield { .. }
+            | Self::Invokevirtual { .. }
+            | Self::Invokespecial { .. }
+            | Self::Invokestatic { .. }
+            | Self::New { .. }
+            | Self::Anewarray { .. }
+            | Self::Checkcast { .. }
+            | Self::Instanceof { .. }
+            | Self::Ifnull { .. }
+            | Self::Ifnonnull { .. } => 3,
+            Self::Multianewarray { .. } | Self::Wide { .. } => 4,
+            Self::Invokedynamic { .. }
+            | Self::GotoW { .. }
+            | Self::Invokeinterface { .. }
+            | Self::JsrW { .. } => 5,
+            Self::WideIinc { .. } => 6,
+            Self::Lookupswitch {
                 ref match_offsets, ..
             } => 1 + ((position + 1) % 4) + 4 + 4 + 8 * match_offsets.len() as u16,
+            Self::Tableswitch { offsets, .. } => {
+                1 + ((position + 1) % 4) + 4 + 4 + 4 + 4 * offsets.len() as u16
+            }
         }
     }
 
     fn into_raw(self, idx: u16, pool: &mut ConstantPool) -> CPAccessResult<Vec<u8>> {
         let mut ret = vec![];
         match self {
-            JavaOpCode::Nop => ret.push(JavaOpCode::NOP),
-            JavaOpCode::AconstNull => ret.push(JavaOpCode::ACONST_NULL),
-            JavaOpCode::IconstM1 => ret.push(JavaOpCode::ICONST_M1),
-            JavaOpCode::Iconst0 => ret.push(JavaOpCode::ICONST_0),
-            JavaOpCode::Iconst1 => ret.push(JavaOpCode::ICONST_1),
-            JavaOpCode::Iconst2 => ret.push(JavaOpCode::ICONST_2),
-            JavaOpCode::Iconst3 => ret.push(JavaOpCode::ICONST_3),
-            JavaOpCode::Iconst4 => ret.push(JavaOpCode::ICONST_4),
-            JavaOpCode::Iconst5 => ret.push(JavaOpCode::ICONST_5),
-            JavaOpCode::Lconst0 => ret.push(JavaOpCode::LCONST_0),
-            JavaOpCode::Lconst1 => ret.push(JavaOpCode::LCONST_1),
-            JavaOpCode::Fconst0 => ret.push(JavaOpCode::FCONST_0),
-            JavaOpCode::Fconst1 => ret.push(JavaOpCode::FCONST_1),
-            JavaOpCode::Fconst2 => ret.push(JavaOpCode::FCONST_2),
-            JavaOpCode::Dconst0 => ret.push(JavaOpCode::DCONST_0),
-            JavaOpCode::Dconst1 => ret.push(JavaOpCode::DCONST_1),
-            JavaOpCode::Bipush { value } => {
-                ret.push(JavaOpCode::BIPUSH);
-                ret.push(value);
+            Self::Nop => ret.push(Self::NOP),
+            Self::AconstNull => ret.push(Self::ACONST_NULL),
+            Self::IconstM1 => ret.push(Self::ICONST_M1),
+            Self::Iconst0 => ret.push(Self::ICONST_0),
+            Self::Iconst1 => ret.push(Self::ICONST_1),
+            Self::Iconst2 => ret.push(Self::ICONST_2),
+            Self::Iconst3 => ret.push(Self::ICONST_3),
+            Self::Iconst4 => ret.push(Self::ICONST_4),
+            Self::Iconst5 => ret.push(Self::ICONST_5),
+            Self::Lconst0 => ret.push(Self::LCONST_0),
+            Self::Lconst1 => ret.push(Self::LCONST_1),
+            Self::Fconst0 => ret.push(Self::FCONST_0),
+            Self::Fconst1 => ret.push(Self::FCONST_1),
+            Self::Fconst2 => ret.push(Self::FCONST_2),
+            Self::Dconst0 => ret.push(Self::DCONST_0),
+            Self::Dconst1 => ret.push(Self::DCONST_1),
+            Self::Bipush { value } => {
+                ret.push(Self::BIPUSH);
+                ret.extend(value.to_be_bytes());
             }
-            JavaOpCode::Ldc { index } => {
-                ret.push(JavaOpCode::LDC);
+            Self::Sipush { value } => {
+                ret.push(Self::SIPUSH);
+                ret.extend(value.to_be_bytes());
+            }
+            Self::Ldc { index } => {
+                ret.push(Self::LDC);
                 ret.push(index);
             }
-            JavaOpCode::LdcW { index } => {
-                ret.push(JavaOpCode::LDC_W);
-                ret.extend(&index.to_be_bytes());
+            Self::LdcW { index } => {
+                ret.push(Self::LDC_W);
+                ret.extend(index.to_be_bytes());
             }
-            JavaOpCode::Ldc2W { value } => {
-                ret.push(JavaOpCode::LDC2_W);
+            Self::Ldc2W { value } => {
+                ret.push(Self::LDC2_W);
                 let index = value
                     .map_left(|l| pool.add_long(l))
                     .map_right(|d| pool.add_double(d))
                     .unwrap()?;
-                ret.extend(&index.to_be_bytes());
+                ret.extend(index.to_be_bytes());
             }
-            JavaOpCode::Iload { index } => match index {
-                0 => return JavaOpCode::Iload0.into_raw(idx, pool),
-                1 => return JavaOpCode::Iload1.into_raw(idx, pool),
-                2 => return JavaOpCode::Iload2.into_raw(idx, pool),
-                3 => return JavaOpCode::Iload3.into_raw(idx, pool),
+            Self::Iload { index } => match index {
+                0 => return Self::Iload0.into_raw(idx, pool),
+                1 => return Self::Iload1.into_raw(idx, pool),
+                2 => return Self::Iload2.into_raw(idx, pool),
+                3 => return Self::Iload3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::ILOAD);
+                    ret.push(Self::ILOAD);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Lload { index } => match index {
-                0 => return JavaOpCode::Lload0.into_raw(idx, pool),
-                1 => return JavaOpCode::Lload1.into_raw(idx, pool),
-                2 => return JavaOpCode::Lload2.into_raw(idx, pool),
-                3 => return JavaOpCode::Lload3.into_raw(idx, pool),
+            Self::Lload { index } => match index {
+                0 => return Self::Lload0.into_raw(idx, pool),
+                1 => return Self::Lload1.into_raw(idx, pool),
+                2 => return Self::Lload2.into_raw(idx, pool),
+                3 => return Self::Lload3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::LLOAD);
+                    ret.push(Self::LLOAD);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Fload { index } => match index {
-                0 => return JavaOpCode::Fload0.into_raw(idx, pool),
-                1 => return JavaOpCode::Fload1.into_raw(idx, pool),
-                2 => return JavaOpCode::Fload2.into_raw(idx, pool),
-                3 => return JavaOpCode::Fload3.into_raw(idx, pool),
+            Self::Fload { index } => match index {
+                0 => return Self::Fload0.into_raw(idx, pool),
+                1 => return Self::Fload1.into_raw(idx, pool),
+                2 => return Self::Fload2.into_raw(idx, pool),
+                3 => return Self::Fload3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::FLOAD);
+                    ret.push(Self::FLOAD);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Dload { index } => match index {
-                0 => return JavaOpCode::Dload0.into_raw(idx, pool),
-                1 => return JavaOpCode::Dload1.into_raw(idx, pool),
-                2 => return JavaOpCode::Dload2.into_raw(idx, pool),
-                3 => return JavaOpCode::Dload3.into_raw(idx, pool),
+            Self::Dload { index } => match index {
+                0 => return Self::Dload0.into_raw(idx, pool),
+                1 => return Self::Dload1.into_raw(idx, pool),
+                2 => return Self::Dload2.into_raw(idx, pool),
+                3 => return Self::Dload3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::DLOAD);
+                    ret.push(Self::DLOAD);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Aload { index } => match index {
-                0 => return JavaOpCode::Aload0.into_raw(idx, pool),
-                1 => return JavaOpCode::Aload1.into_raw(idx, pool),
-                2 => return JavaOpCode::Aload2.into_raw(idx, pool),
-                3 => return JavaOpCode::Aload3.into_raw(idx, pool),
+            Self::Aload { index } => match index {
+                0 => return Self::Aload0.into_raw(idx, pool),
+                1 => return Self::Aload1.into_raw(idx, pool),
+                2 => return Self::Aload2.into_raw(idx, pool),
+                3 => return Self::Aload3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::ALOAD);
+                    ret.push(Self::ALOAD);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Iload0 => ret.push(JavaOpCode::ILOAD_0),
-            JavaOpCode::Iload1 => ret.push(JavaOpCode::ILOAD_1),
-            JavaOpCode::Iload2 => ret.push(JavaOpCode::ILOAD_2),
-            JavaOpCode::Iload3 => ret.push(JavaOpCode::ILOAD_3),
-            JavaOpCode::Lload0 => ret.push(JavaOpCode::LLOAD_0),
-            JavaOpCode::Lload1 => ret.push(JavaOpCode::LLOAD_1),
-            JavaOpCode::Lload2 => ret.push(JavaOpCode::LLOAD_2),
-            JavaOpCode::Lload3 => ret.push(JavaOpCode::LLOAD_3),
-            JavaOpCode::Fload0 => ret.push(JavaOpCode::FLOAD_0),
-            JavaOpCode::Fload1 => ret.push(JavaOpCode::FLOAD_1),
-            JavaOpCode::Fload2 => ret.push(JavaOpCode::FLOAD_2),
-            JavaOpCode::Fload3 => ret.push(JavaOpCode::FLOAD_3),
-            JavaOpCode::Dload0 => ret.push(JavaOpCode::DLOAD_0),
-            JavaOpCode::Dload1 => ret.push(JavaOpCode::DLOAD_1),
-            JavaOpCode::Dload2 => ret.push(JavaOpCode::DLOAD_2),
-            JavaOpCode::Dload3 => ret.push(JavaOpCode::DLOAD_3),
-            JavaOpCode::Aload0 => ret.push(JavaOpCode::ALOAD_0),
-            JavaOpCode::Aload1 => ret.push(JavaOpCode::ALOAD_1),
-            JavaOpCode::Aload2 => ret.push(JavaOpCode::ALOAD_2),
-            JavaOpCode::Aload3 => ret.push(JavaOpCode::ALOAD_3),
-            JavaOpCode::Iaload => ret.push(JavaOpCode::IALOAD),
-            JavaOpCode::Laload => ret.push(JavaOpCode::LALOAD),
-            JavaOpCode::Faload => ret.push(JavaOpCode::FALOAD),
-            JavaOpCode::Daload => ret.push(JavaOpCode::DALOAD),
-            JavaOpCode::Aaload => ret.push(JavaOpCode::AALOAD),
-            JavaOpCode::Baload => ret.push(JavaOpCode::BALOAD),
-            JavaOpCode::Caload => ret.push(JavaOpCode::CALOAD),
-            JavaOpCode::Istore { index } => match index {
-                0 => return JavaOpCode::Istore0.into_raw(idx, pool),
-                1 => return JavaOpCode::Istore1.into_raw(idx, pool),
-                2 => return JavaOpCode::Istore2.into_raw(idx, pool),
-                3 => return JavaOpCode::Istore3.into_raw(idx, pool),
+            Self::Iload0 => ret.push(Self::ILOAD_0),
+            Self::Iload1 => ret.push(Self::ILOAD_1),
+            Self::Iload2 => ret.push(Self::ILOAD_2),
+            Self::Iload3 => ret.push(Self::ILOAD_3),
+            Self::Lload0 => ret.push(Self::LLOAD_0),
+            Self::Lload1 => ret.push(Self::LLOAD_1),
+            Self::Lload2 => ret.push(Self::LLOAD_2),
+            Self::Lload3 => ret.push(Self::LLOAD_3),
+            Self::Fload0 => ret.push(Self::FLOAD_0),
+            Self::Fload1 => ret.push(Self::FLOAD_1),
+            Self::Fload2 => ret.push(Self::FLOAD_2),
+            Self::Fload3 => ret.push(Self::FLOAD_3),
+            Self::Dload0 => ret.push(Self::DLOAD_0),
+            Self::Dload1 => ret.push(Self::DLOAD_1),
+            Self::Dload2 => ret.push(Self::DLOAD_2),
+            Self::Dload3 => ret.push(Self::DLOAD_3),
+            Self::Aload0 => ret.push(Self::ALOAD_0),
+            Self::Aload1 => ret.push(Self::ALOAD_1),
+            Self::Aload2 => ret.push(Self::ALOAD_2),
+            Self::Aload3 => ret.push(Self::ALOAD_3),
+            Self::Iaload => ret.push(Self::IALOAD),
+            Self::Laload => ret.push(Self::LALOAD),
+            Self::Faload => ret.push(Self::FALOAD),
+            Self::Daload => ret.push(Self::DALOAD),
+            Self::Aaload => ret.push(Self::AALOAD),
+            Self::Baload => ret.push(Self::BALOAD),
+            Self::Caload => ret.push(Self::CALOAD),
+            Self::Saload => ret.push(Self::SALOAD),
+            Self::Istore { index } => match index {
+                0 => return Self::Istore0.into_raw(idx, pool),
+                1 => return Self::Istore1.into_raw(idx, pool),
+                2 => return Self::Istore2.into_raw(idx, pool),
+                3 => return Self::Istore3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::ISTORE);
+                    ret.push(Self::ISTORE);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Lstore { index } => match index {
-                0 => return JavaOpCode::Lstore0.into_raw(idx, pool),
-                1 => return JavaOpCode::Lstore1.into_raw(idx, pool),
-                2 => return JavaOpCode::Lstore2.into_raw(idx, pool),
-                3 => return JavaOpCode::Lstore3.into_raw(idx, pool),
+            Self::Lstore { index } => match index {
+                0 => return Self::Lstore0.into_raw(idx, pool),
+                1 => return Self::Lstore1.into_raw(idx, pool),
+                2 => return Self::Lstore2.into_raw(idx, pool),
+                3 => return Self::Lstore3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::LSTORE);
+                    ret.push(Self::LSTORE);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Fstore { index } => match index {
-                0 => return JavaOpCode::Fstore0.into_raw(idx, pool),
-                1 => return JavaOpCode::Fstore1.into_raw(idx, pool),
-                2 => return JavaOpCode::Fstore2.into_raw(idx, pool),
-                3 => return JavaOpCode::Fstore3.into_raw(idx, pool),
+            Self::Fstore { index } => match index {
+                0 => return Self::Fstore0.into_raw(idx, pool),
+                1 => return Self::Fstore1.into_raw(idx, pool),
+                2 => return Self::Fstore2.into_raw(idx, pool),
+                3 => return Self::Fstore3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::FSTORE);
+                    ret.push(Self::FSTORE);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Dstore { index } => match index {
-                0 => return JavaOpCode::Dstore0.into_raw(idx, pool),
-                1 => return JavaOpCode::Dstore1.into_raw(idx, pool),
-                2 => return JavaOpCode::Dstore2.into_raw(idx, pool),
-                3 => return JavaOpCode::Dstore3.into_raw(idx, pool),
+            Self::Dstore { index } => match index {
+                0 => return Self::Dstore0.into_raw(idx, pool),
+                1 => return Self::Dstore1.into_raw(idx, pool),
+                2 => return Self::Dstore2.into_raw(idx, pool),
+                3 => return Self::Dstore3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::DSTORE);
+                    ret.push(Self::DSTORE);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Astore { index } => match index {
-                0 => return JavaOpCode::Astore0.into_raw(idx, pool),
-                1 => return JavaOpCode::Astore1.into_raw(idx, pool),
-                2 => return JavaOpCode::Astore2.into_raw(idx, pool),
-                3 => return JavaOpCode::Astore3.into_raw(idx, pool),
+            Self::Astore { index } => match index {
+                0 => return Self::Astore0.into_raw(idx, pool),
+                1 => return Self::Astore1.into_raw(idx, pool),
+                2 => return Self::Astore2.into_raw(idx, pool),
+                3 => return Self::Astore3.into_raw(idx, pool),
                 _ => {
-                    ret.push(JavaOpCode::ASTORE);
+                    ret.push(Self::ASTORE);
                     ret.push(index);
                 }
             },
-            JavaOpCode::Istore0 => ret.push(JavaOpCode::ISTORE_0),
-            JavaOpCode::Istore1 => ret.push(JavaOpCode::ISTORE_1),
-            JavaOpCode::Istore2 => ret.push(JavaOpCode::ISTORE_2),
-            JavaOpCode::Istore3 => ret.push(JavaOpCode::ISTORE_3),
-            JavaOpCode::Lstore0 => ret.push(JavaOpCode::ISTORE_0),
-            JavaOpCode::Lstore1 => ret.push(JavaOpCode::ISTORE_1),
-            JavaOpCode::Lstore2 => ret.push(JavaOpCode::ISTORE_2),
-            JavaOpCode::Lstore3 => ret.push(JavaOpCode::ISTORE_3),
-            JavaOpCode::Fstore0 => ret.push(JavaOpCode::FSTORE_0),
-            JavaOpCode::Fstore1 => ret.push(JavaOpCode::FSTORE_1),
-            JavaOpCode::Fstore2 => ret.push(JavaOpCode::FSTORE_2),
-            JavaOpCode::Fstore3 => ret.push(JavaOpCode::FSTORE_3),
-            JavaOpCode::Dstore0 => ret.push(JavaOpCode::DSTORE_0),
-            JavaOpCode::Dstore1 => ret.push(JavaOpCode::DSTORE_1),
-            JavaOpCode::Dstore2 => ret.push(JavaOpCode::DSTORE_2),
-            JavaOpCode::Dstore3 => ret.push(JavaOpCode::DSTORE_3),
-            JavaOpCode::Astore0 => ret.push(JavaOpCode::ASTORE_0),
-            JavaOpCode::Astore1 => ret.push(JavaOpCode::ASTORE_1),
-            JavaOpCode::Astore2 => ret.push(JavaOpCode::ASTORE_2),
-            JavaOpCode::Astore3 => ret.push(JavaOpCode::ASTORE_3),
-            JavaOpCode::Iastore => ret.push(JavaOpCode::IASTORE),
-            JavaOpCode::Lastore => ret.push(JavaOpCode::LASTORE),
-            JavaOpCode::Fastore => ret.push(JavaOpCode::FASTORE),
-            JavaOpCode::Dastore => ret.push(JavaOpCode::DASTORE),
-            JavaOpCode::Aastore => ret.push(JavaOpCode::AASTORE),
-            JavaOpCode::Bastore => ret.push(JavaOpCode::BASTORE),
-            JavaOpCode::Castore => ret.push(JavaOpCode::CASTORE),
-            JavaOpCode::Pop => ret.push(JavaOpCode::POP),
-            JavaOpCode::Pop2 => ret.push(JavaOpCode::POP2),
-            JavaOpCode::Dup => ret.push(JavaOpCode::DUP),
-            JavaOpCode::DupX1 => ret.push(JavaOpCode::DUP_X1),
-            JavaOpCode::DupX2 => ret.push(JavaOpCode::DUP_X2),
-            JavaOpCode::Dup2 => ret.push(JavaOpCode::DUP2),
-            JavaOpCode::Dup2X1 => ret.push(JavaOpCode::DUP2_X1),
-            JavaOpCode::Dup2X2 => ret.push(JavaOpCode::DUP2_X2),
-            JavaOpCode::Iadd => ret.push(JavaOpCode::IADD),
-            JavaOpCode::Ladd => ret.push(JavaOpCode::LADD),
-            JavaOpCode::Fadd => ret.push(JavaOpCode::FADD),
-            JavaOpCode::Dadd => ret.push(JavaOpCode::DADD),
-            JavaOpCode::Isub => ret.push(JavaOpCode::ISUB),
-            JavaOpCode::Lsub => ret.push(JavaOpCode::LSUB),
-            JavaOpCode::Fsub => ret.push(JavaOpCode::FSUB),
-            JavaOpCode::Dsub => ret.push(JavaOpCode::DSUB),
-            JavaOpCode::Imul => ret.push(JavaOpCode::IMUL),
-            JavaOpCode::Lmul => ret.push(JavaOpCode::LMUL),
-            JavaOpCode::Fmul => ret.push(JavaOpCode::FMUL),
-            JavaOpCode::Dmul => ret.push(JavaOpCode::DMUL),
-            JavaOpCode::Idiv => ret.push(JavaOpCode::IDIV),
-            JavaOpCode::Ldiv => ret.push(JavaOpCode::LDIV),
-            JavaOpCode::Fdiv => ret.push(JavaOpCode::FDIV),
-            JavaOpCode::Ddiv => ret.push(JavaOpCode::DDIV),
-            JavaOpCode::Irem => ret.push(JavaOpCode::IREM),
-            JavaOpCode::Lrem => ret.push(JavaOpCode::LREM),
-            JavaOpCode::Frem => ret.push(JavaOpCode::FREM),
-            JavaOpCode::Drem => ret.push(JavaOpCode::DREM),
-            JavaOpCode::Ineg => ret.push(JavaOpCode::INEG),
-            JavaOpCode::Lneg => ret.push(JavaOpCode::LNEG),
-            JavaOpCode::Fneg => ret.push(JavaOpCode::FNEG),
-            JavaOpCode::Dneg => ret.push(JavaOpCode::DNEG),
-            JavaOpCode::Ishl => ret.push(JavaOpCode::ISHL),
-            JavaOpCode::Lshl => ret.push(JavaOpCode::LSHL),
-            JavaOpCode::Ishr => ret.push(JavaOpCode::ISHR),
-            JavaOpCode::Lshr => ret.push(JavaOpCode::LSHR),
-            JavaOpCode::Iushr => ret.push(JavaOpCode::IUSHR),
-            JavaOpCode::Lushr => ret.push(JavaOpCode::LUSHR),
-            JavaOpCode::Iand => ret.push(JavaOpCode::IAND),
-            JavaOpCode::Land => ret.push(JavaOpCode::LAND),
-            JavaOpCode::Ior => ret.push(JavaOpCode::IOR),
-            JavaOpCode::Lor => ret.push(JavaOpCode::LOR),
-            JavaOpCode::Ixor => ret.push(JavaOpCode::IXOR),
-            JavaOpCode::Lxor => ret.push(JavaOpCode::LXOR),
-            JavaOpCode::Iinc { index, delta } => {
-                ret.push(JavaOpCode::IINC);
+            Self::Istore0 => ret.push(Self::ISTORE_0),
+            Self::Istore1 => ret.push(Self::ISTORE_1),
+            Self::Istore2 => ret.push(Self::ISTORE_2),
+            Self::Istore3 => ret.push(Self::ISTORE_3),
+            Self::Lstore0 => ret.push(Self::ISTORE_0),
+            Self::Lstore1 => ret.push(Self::ISTORE_1),
+            Self::Lstore2 => ret.push(Self::ISTORE_2),
+            Self::Lstore3 => ret.push(Self::ISTORE_3),
+            Self::Fstore0 => ret.push(Self::FSTORE_0),
+            Self::Fstore1 => ret.push(Self::FSTORE_1),
+            Self::Fstore2 => ret.push(Self::FSTORE_2),
+            Self::Fstore3 => ret.push(Self::FSTORE_3),
+            Self::Dstore0 => ret.push(Self::DSTORE_0),
+            Self::Dstore1 => ret.push(Self::DSTORE_1),
+            Self::Dstore2 => ret.push(Self::DSTORE_2),
+            Self::Dstore3 => ret.push(Self::DSTORE_3),
+            Self::Astore0 => ret.push(Self::ASTORE_0),
+            Self::Astore1 => ret.push(Self::ASTORE_1),
+            Self::Astore2 => ret.push(Self::ASTORE_2),
+            Self::Astore3 => ret.push(Self::ASTORE_3),
+            Self::Iastore => ret.push(Self::IASTORE),
+            Self::Lastore => ret.push(Self::LASTORE),
+            Self::Fastore => ret.push(Self::FASTORE),
+            Self::Dastore => ret.push(Self::DASTORE),
+            Self::Aastore => ret.push(Self::AASTORE),
+            Self::Bastore => ret.push(Self::BASTORE),
+            Self::Castore => ret.push(Self::CASTORE),
+            Self::Sastore => ret.push(Self::SASTORE),
+            Self::Pop => ret.push(Self::POP),
+            Self::Pop2 => ret.push(Self::POP2),
+            Self::Dup => ret.push(Self::DUP),
+            Self::DupX1 => ret.push(Self::DUP_X1),
+            Self::DupX2 => ret.push(Self::DUP_X2),
+            Self::Dup2 => ret.push(Self::DUP2),
+            Self::Dup2X1 => ret.push(Self::DUP2_X1),
+            Self::Dup2X2 => ret.push(Self::DUP2_X2),
+            Self::Swap => ret.push(Self::SWAP),
+            Self::Iadd => ret.push(Self::IADD),
+            Self::Ladd => ret.push(Self::LADD),
+            Self::Fadd => ret.push(Self::FADD),
+            Self::Dadd => ret.push(Self::DADD),
+            Self::Isub => ret.push(Self::ISUB),
+            Self::Lsub => ret.push(Self::LSUB),
+            Self::Fsub => ret.push(Self::FSUB),
+            Self::Dsub => ret.push(Self::DSUB),
+            Self::Imul => ret.push(Self::IMUL),
+            Self::Lmul => ret.push(Self::LMUL),
+            Self::Fmul => ret.push(Self::FMUL),
+            Self::Dmul => ret.push(Self::DMUL),
+            Self::Idiv => ret.push(Self::IDIV),
+            Self::Ldiv => ret.push(Self::LDIV),
+            Self::Fdiv => ret.push(Self::FDIV),
+            Self::Ddiv => ret.push(Self::DDIV),
+            Self::Irem => ret.push(Self::IREM),
+            Self::Lrem => ret.push(Self::LREM),
+            Self::Frem => ret.push(Self::FREM),
+            Self::Drem => ret.push(Self::DREM),
+            Self::Ineg => ret.push(Self::INEG),
+            Self::Lneg => ret.push(Self::LNEG),
+            Self::Fneg => ret.push(Self::FNEG),
+            Self::Dneg => ret.push(Self::DNEG),
+            Self::Ishl => ret.push(Self::ISHL),
+            Self::Lshl => ret.push(Self::LSHL),
+            Self::Ishr => ret.push(Self::ISHR),
+            Self::Lshr => ret.push(Self::LSHR),
+            Self::Iushr => ret.push(Self::IUSHR),
+            Self::Lushr => ret.push(Self::LUSHR),
+            Self::Iand => ret.push(Self::IAND),
+            Self::Land => ret.push(Self::LAND),
+            Self::Ior => ret.push(Self::IOR),
+            Self::Lor => ret.push(Self::LOR),
+            Self::Ixor => ret.push(Self::IXOR),
+            Self::Lxor => ret.push(Self::LXOR),
+            Self::Iinc { index, delta } => {
+                ret.push(Self::IINC);
                 ret.push(index);
                 ret.extend(&delta.to_be_bytes());
             }
-            JavaOpCode::I2l => ret.push(JavaOpCode::I2L),
-            JavaOpCode::I2f => ret.push(JavaOpCode::I2F),
-            JavaOpCode::I2d => ret.push(JavaOpCode::I2D),
-            JavaOpCode::L2i => ret.push(JavaOpCode::L2I),
-            JavaOpCode::L2f => ret.push(JavaOpCode::L2F),
-            JavaOpCode::L2d => ret.push(JavaOpCode::L2D),
-            JavaOpCode::F2i => ret.push(JavaOpCode::F2I),
-            JavaOpCode::F2l => ret.push(JavaOpCode::F2L),
-            JavaOpCode::F2d => ret.push(JavaOpCode::F2D),
-            JavaOpCode::D2i => ret.push(JavaOpCode::D2I),
-            JavaOpCode::D2l => ret.push(JavaOpCode::D2L),
-            JavaOpCode::D2f => ret.push(JavaOpCode::D2F),
-            JavaOpCode::I2b => ret.push(JavaOpCode::I2B),
-            JavaOpCode::I2c => ret.push(JavaOpCode::I2C),
-            JavaOpCode::I2s => ret.push(JavaOpCode::I2S),
-            JavaOpCode::Lcmp => ret.push(JavaOpCode::LCMP),
-            JavaOpCode::Fcmpl => ret.push(JavaOpCode::FCMPL),
-            JavaOpCode::Fcmpg => ret.push(JavaOpCode::FCMPG),
-            JavaOpCode::Dcmpl => ret.push(JavaOpCode::DCMPL),
-            JavaOpCode::Dcmpg => ret.push(JavaOpCode::DCMPG),
-            JavaOpCode::Ifeq { offset } => {
-                ret.push(JavaOpCode::IFEQ);
+            Self::I2l => ret.push(Self::I2L),
+            Self::I2f => ret.push(Self::I2F),
+            Self::I2d => ret.push(Self::I2D),
+            Self::L2i => ret.push(Self::L2I),
+            Self::L2f => ret.push(Self::L2F),
+            Self::L2d => ret.push(Self::L2D),
+            Self::F2i => ret.push(Self::F2I),
+            Self::F2l => ret.push(Self::F2L),
+            Self::F2d => ret.push(Self::F2D),
+            Self::D2i => ret.push(Self::D2I),
+            Self::D2l => ret.push(Self::D2L),
+            Self::D2f => ret.push(Self::D2F),
+            Self::I2b => ret.push(Self::I2B),
+            Self::I2c => ret.push(Self::I2C),
+            Self::I2s => ret.push(Self::I2S),
+            Self::Lcmp => ret.push(Self::LCMP),
+            Self::Fcmpl => ret.push(Self::FCMPL),
+            Self::Fcmpg => ret.push(Self::FCMPG),
+            Self::Dcmpl => ret.push(Self::DCMPL),
+            Self::Dcmpg => ret.push(Self::DCMPG),
+            Self::Ifeq { offset } => {
+                ret.push(Self::IFEQ);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Ifne { offset } => {
-                ret.push(JavaOpCode::IFNE);
+            Self::Ifne { offset } => {
+                ret.push(Self::IFNE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Iflt { offset } => {
-                ret.push(JavaOpCode::IFLT);
+            Self::Iflt { offset } => {
+                ret.push(Self::IFLT);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Ifge { offset } => {
-                ret.push(JavaOpCode::IFGE);
+            Self::Ifge { offset } => {
+                ret.push(Self::IFGE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Ifgt { offset } => {
-                ret.push(JavaOpCode::IFGT);
+            Self::Ifgt { offset } => {
+                ret.push(Self::IFGT);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Ifle { offset } => {
-                ret.push(JavaOpCode::IFLE);
+            Self::Ifle { offset } => {
+                ret.push(Self::IFLE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmpeq { offset } => {
-                ret.push(JavaOpCode::IF_ICMPEQ);
+            Self::IfIcmpeq { offset } => {
+                ret.push(Self::IF_ICMPEQ);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmpne { offset } => {
-                ret.push(JavaOpCode::IF_ICMPNE);
+            Self::IfIcmpne { offset } => {
+                ret.push(Self::IF_ICMPNE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmplt { offset } => {
-                ret.push(JavaOpCode::IF_ICMPLT);
+            Self::IfIcmplt { offset } => {
+                ret.push(Self::IF_ICMPLT);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmpge { offset } => {
-                ret.push(JavaOpCode::IF_ICMPGE);
+            Self::IfIcmpge { offset } => {
+                ret.push(Self::IF_ICMPGE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmpgt { offset } => {
-                ret.push(JavaOpCode::IF_ICMPGT);
+            Self::IfIcmpgt { offset } => {
+                ret.push(Self::IF_ICMPGT);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfIcmple { offset } => {
-                ret.push(JavaOpCode::IF_ICMPLE);
+            Self::IfIcmple { offset } => {
+                ret.push(Self::IF_ICMPLE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfAcmpeq { offset } => {
-                ret.push(JavaOpCode::IF_ACMPEQ);
+            Self::IfAcmpeq { offset } => {
+                ret.push(Self::IF_ACMPEQ);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::IfAcmpne { offset } => {
-                ret.push(JavaOpCode::IF_ACMPNE);
+            Self::IfAcmpne { offset } => {
+                ret.push(Self::IF_ACMPNE);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Goto { offset } => {
-                ret.push(JavaOpCode::GOTO);
+            Self::Goto { offset } => {
+                ret.push(Self::GOTO);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Jsr { offset } => {
-                ret.push(JavaOpCode::JSR);
+            Self::Jsr { offset } => {
+                ret.push(Self::JSR);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Lookupswitch {
+            Self::Ret { index } => {
+                ret.push(Self::RET);
+                ret.push(index);
+            }
+            Self::Tableswitch {
+                default,
+                low,
+                high,
+                offsets,
+            } => {
+                ret.push(Self::TABLESWITCH);
+                ret.extend(std::iter::repeat(0).take(((idx + 1) % 4).into()));
+                ret.extend(default.to_be_bytes());
+                ret.extend(low.to_be_bytes());
+                ret.extend(high.to_be_bytes());
+                offsets
+                    .into_iter()
+                    .map(i32::to_be_bytes)
+                    .for_each(|offset| ret.extend(offset));
+            }
+            Self::Lookupswitch {
                 default_offset,
                 match_offsets,
             } => {
-                ret.push(JavaOpCode::LOOKUPSWITCH);
+                ret.push(Self::LOOKUPSWITCH);
                 ret.extend(std::iter::repeat(0).take(((idx + 1) % 4).into()));
-                ret.extend(&default_offset.to_be_bytes());
-                ret.extend(&(match_offsets.len() as u32).to_be_bytes());
-                for (r#match, offset) in match_offsets {
-                    ret.extend(&r#match.to_be_bytes());
-                    ret.extend(&offset.to_be_bytes());
-                }
+                ret.extend(default_offset.to_be_bytes());
+                ret.extend((match_offsets.len() as u32).to_be_bytes());
+                match_offsets.into_iter().for_each(|(r#match, offset)| {
+                    ret.extend(r#match.to_be_bytes());
+                    ret.extend(offset.to_be_bytes());
+                });
             }
-            JavaOpCode::Ireturn => ret.push(JavaOpCode::IRETURN),
-            JavaOpCode::Lreturn => ret.push(JavaOpCode::LRETURN),
-            JavaOpCode::Freturn => ret.push(JavaOpCode::FRETURN),
-            JavaOpCode::Dreturn => ret.push(JavaOpCode::DRETURN),
-            JavaOpCode::Areturn => ret.push(JavaOpCode::ARETURN),
-            JavaOpCode::Getstatic { field } => {
-                ret.push(JavaOpCode::GETSTATIC);
+            Self::Ireturn => ret.push(Self::IRETURN),
+            Self::Lreturn => ret.push(Self::LRETURN),
+            Self::Freturn => ret.push(Self::FRETURN),
+            Self::Dreturn => ret.push(Self::DRETURN),
+            Self::Areturn => ret.push(Self::ARETURN),
+            Self::Return => ret.push(Self::RETURN),
+            Self::Getstatic { field } => {
+                ret.push(Self::GETSTATIC);
                 let index = pool.add_field_ref(field)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Getfield { field } => {
-                ret.push(JavaOpCode::GETFIELD);
+            Self::Putstatic { field } => {
+                ret.push(Self::PUTSTATIC);
                 let index = pool.add_field_ref(field)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Putfield { field } => {
-                ret.push(JavaOpCode::PUTFIELD);
+            Self::Getfield { field } => {
+                ret.push(Self::GETFIELD);
                 let index = pool.add_field_ref(field)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Invokevirtual { method } => {
-                ret.push(JavaOpCode::INVOKEVIRTUAL);
+            Self::Putfield { field } => {
+                ret.push(Self::PUTFIELD);
+                let index = pool.add_field_ref(field)?;
+                ret.extend(&index.to_be_bytes());
+            }
+            Self::Invokevirtual { method } => {
+                ret.push(Self::INVOKEVIRTUAL);
                 let index = pool.add_method_ref(method)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Invokespecial { method } => {
-                ret.push(JavaOpCode::INVOKESPECIAL);
+            Self::Invokespecial { method } => {
+                ret.push(Self::INVOKESPECIAL);
                 let index = pool.add_method_ref(method)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Invokestatic { method } => {
-                ret.push(JavaOpCode::INVOKESTATIC);
+            Self::Invokestatic { method } => {
+                ret.push(Self::INVOKESTATIC);
                 let index = pool.add_method_ref(method)?;
                 ret.extend(&index.to_be_bytes());
             }
-            JavaOpCode::Invokedynamic {
+            Self::Invokeinterface {
+                method: method_ref,
+                num_arg_bytes,
+            } => {
+                ret.push(Self::INVOKEINTERFACE);
+                let index = pool.add_method_ref(method_ref)?;
+                ret.extend(index.to_be_bytes());
+                ret.extend([num_arg_bytes, 0]);
+            }
+            Self::Invokedynamic {
                 bootstrap_idx,
                 name,
                 r#type,
             } => {
-                ret.push(JavaOpCode::INVOKEDYNAMIC);
+                ret.push(Self::INVOKEDYNAMIC);
                 let nat_idx = pool.add_name_and_type(name, r#type)?;
                 let id_idx = pool.add(CPEntry::InvokeDynamic(bootstrap_idx, nat_idx))?;
                 ret.extend(&id_idx.to_be_bytes());
                 ret.extend(&[0, 0]);
             }
-            JavaOpCode::New { type_name } => {
-                ret.push(JavaOpCode::NEW);
+            Self::New { type_name } => {
+                ret.push(Self::NEW);
                 ret.extend(&pool.add_class_name(type_name)?.to_be_bytes());
             }
-            JavaOpCode::Newarray { r#type } => {
-                ret.push(JavaOpCode::NEWARRAY);
+            Self::Newarray { r#type } => {
+                ret.push(Self::NEWARRAY);
                 ret.push(r#type as u8);
             }
-            JavaOpCode::Anewarray { el_type } => {
-                ret.push(JavaOpCode::ANEWARRAY);
+            Self::Anewarray { el_type } => {
+                ret.push(Self::ANEWARRAY);
                 let type_index = pool.add_class_name(el_type)?;
                 ret.extend(&type_index.to_be_bytes());
             }
-            JavaOpCode::Arraylength => ret.push(JavaOpCode::ARRAYLENGTH),
-            JavaOpCode::Athrow => ret.push(JavaOpCode::ATHROW),
-            JavaOpCode::Checkcast { type_name } => {
-                ret.push(JavaOpCode::CHECKCAST);
+            Self::Arraylength => ret.push(Self::ARRAYLENGTH),
+            Self::Athrow => ret.push(Self::ATHROW),
+            Self::Checkcast { type_name } => {
+                ret.push(Self::CHECKCAST);
                 let type_index = pool.add_class_name(type_name)?;
-                ret.extend(&type_index.to_be_bytes());
+                ret.extend(type_index.to_be_bytes());
             }
-            JavaOpCode::Instanceof { type_name } => {
-                ret.push(JavaOpCode::INSTANCEOF);
+            Self::Instanceof { type_name } => {
+                ret.push(Self::INSTANCEOF);
                 let type_index = pool.add_class_name(type_name)?;
-                ret.extend(&type_index.to_be_bytes());
+                ret.extend(type_index.to_be_bytes());
             }
-            JavaOpCode::Monitorenter => ret.push(JavaOpCode::MONITORENTER),
-            JavaOpCode::Monitorexit => ret.push(JavaOpCode::MONITOREXIT),
-            JavaOpCode::Multianewarray { index, dimensions } => {
-                ret.push(JavaOpCode::MULTIANEWARRAY);
-                ret.extend(&index.to_be_bytes());
+            Self::Monitorenter => ret.push(Self::MONITORENTER),
+            Self::Monitorexit => ret.push(Self::MONITOREXIT),
+            Self::Wide { opcode, index } => {
+                ret.push(Self::WIDE);
+                ret.push(opcode as u8);
+                ret.extend(index.to_be_bytes());
+            }
+            Self::WideIinc { index, delta } => {
+                ret.push(Self::WIDE);
+                ret.push(Self::IINC);
+                ret.extend(index.to_be_bytes());
+                ret.extend(delta.to_be_bytes());
+            }
+            Self::Multianewarray { index, dimensions } => {
+                ret.push(Self::MULTIANEWARRAY);
+                ret.extend(index.to_be_bytes());
                 ret.push(dimensions);
             }
-            JavaOpCode::Ifnull { offset } => {
-                ret.push(JavaOpCode::IFNULL);
+            Self::Ifnull { offset } => {
+                ret.push(Self::IFNULL);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::Ifnonnull { offset } => {
-                ret.push(JavaOpCode::IFNONNULL);
+            Self::Ifnonnull { offset } => {
+                ret.push(Self::IFNONNULL);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::GotoW { offset } => {
-                ret.push(JavaOpCode::GOTO_W);
+            Self::GotoW { offset } => {
+                ret.push(Self::GOTO_W);
                 ret.extend(&offset.to_be_bytes());
             }
-            JavaOpCode::JsrW { offset } => {
-                ret.push(JavaOpCode::JSR_W);
+            Self::JsrW { offset } => {
+                ret.push(Self::JSR_W);
                 ret.extend(&offset.to_be_bytes());
             }
         }
@@ -2526,438 +3142,378 @@ impl JavaOpCode {
 impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
     type Output = CrateResult<Self>;
 
-    fn nom_parse((idx, pool): Self::Env, s: Self::Input) -> IResult<Self::Input, Self::Output> {
+    fn nom_parse(
+        (idx, pool): (u16, &'pool ConstantPool),
+        s: Self::Input,
+    ) -> IResult<Self::Input, Self::Output> {
         comb::flat_map(num::be_u8, |opcode| {
             let ret: Box<dyn Parser<_, _, _>> = match opcode {
-                opcode if opcode == JavaOpCode::NOP => Box::new(just!(Ok(JavaOpCode::Nop))),
-                opcode if opcode == JavaOpCode::ACONST_NULL => {
-                    Box::new(just!(Ok(JavaOpCode::AconstNull)))
+                opcode if opcode == Self::NOP => Box::new(comb::success(Ok(Self::Nop))),
+                opcode if opcode == Self::ACONST_NULL => {
+                    Box::new(comb::success(Ok(Self::AconstNull)))
                 }
-                opcode if opcode == JavaOpCode::ICONST_M1 => {
-                    Box::new(just!(Ok(JavaOpCode::IconstM1)))
+                opcode if opcode == Self::ICONST_M1 => Box::new(comb::success(Ok(Self::IconstM1))),
+                opcode if opcode == Self::ICONST_0 => Box::new(comb::success(Ok(Self::Iconst0))),
+                opcode if opcode == Self::ICONST_1 => Box::new(comb::success(Ok(Self::Iconst1))),
+                opcode if opcode == Self::ICONST_2 => Box::new(comb::success(Ok(Self::Iconst2))),
+                opcode if opcode == Self::ICONST_3 => Box::new(comb::success(Ok(Self::Iconst3))),
+                opcode if opcode == Self::ICONST_4 => Box::new(comb::success(Ok(Self::Iconst4))),
+                opcode if opcode == Self::ICONST_5 => Box::new(comb::success(Ok(Self::Iconst5))),
+                opcode if opcode == Self::LCONST_0 => Box::new(comb::success(Ok(Self::Lconst0))),
+                opcode if opcode == Self::LCONST_1 => Box::new(comb::success(Ok(Self::Lconst1))),
+                opcode if opcode == Self::FCONST_0 => Box::new(comb::success(Ok(Self::Fconst0))),
+                opcode if opcode == Self::FCONST_1 => Box::new(comb::success(Ok(Self::Fconst1))),
+                opcode if opcode == Self::FCONST_2 => Box::new(comb::success(Ok(Self::Fconst2))),
+                opcode if opcode == Self::DCONST_0 => Box::new(comb::success(Ok(Self::Dconst0))),
+                opcode if opcode == Self::DCONST_1 => Box::new(comb::success(Ok(Self::Dconst1))),
+                opcode if opcode == Self::BIPUSH => {
+                    Box::new(comb::map(num::be_i8, |value| Ok(Self::Bipush { value })))
                 }
-                opcode if opcode == JavaOpCode::ICONST_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst0)))
+                opcode if opcode == Self::SIPUSH => {
+                    Box::new(comb::map(num::be_i16, |value| Ok(Self::Sipush { value })))
                 }
-                opcode if opcode == JavaOpCode::ICONST_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst1)))
+                opcode if opcode == Self::LDC => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Ldc { index })))
                 }
-                opcode if opcode == JavaOpCode::ICONST_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst2)))
+                opcode if opcode == Self::LDC_W => {
+                    Box::new(comb::map(num::be_u16, |index| Ok(Self::LdcW { index })))
                 }
-                opcode if opcode == JavaOpCode::ICONST_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst3)))
-                }
-                opcode if opcode == JavaOpCode::ICONST_4 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst4)))
-                }
-                opcode if opcode == JavaOpCode::ICONST_5 => {
-                    Box::new(just!(Ok(JavaOpCode::Iconst5)))
-                }
-                opcode if opcode == JavaOpCode::LCONST_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Lconst0)))
-                }
-                opcode if opcode == JavaOpCode::LCONST_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Lconst1)))
-                }
-                opcode if opcode == JavaOpCode::FCONST_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Fconst0)))
-                }
-                opcode if opcode == JavaOpCode::FCONST_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Fconst1)))
-                }
-                opcode if opcode == JavaOpCode::FCONST_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Fconst2)))
-                }
-                opcode if opcode == JavaOpCode::DCONST_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Dconst0)))
-                }
-                opcode if opcode == JavaOpCode::DCONST_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Dconst1)))
-                }
-                opcode if opcode == JavaOpCode::BIPUSH => {
-                    Box::new(comb::map(num::be_u8, |value| {
-                        Ok(JavaOpCode::Bipush { value })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::LDC => {
-                    Box::new(comb::map(num::be_u8, |index| Ok(JavaOpCode::Ldc { index })))
-                }
-                opcode if opcode == JavaOpCode::LDC_W => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::LdcW { index })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::LDC2_W => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        let entry = pool.get(index)?;
-                        let value = match entry {
-                            CPEntry::Double(d) => Either::Right(*d),
-                            CPEntry::Long(l) => Either::Left(*l),
-                            _ => {
-                                return Err(format!(
-                                    "Ldc2W must refer to a double or a long. Refers to {}",
-                                    entry.r#type(),
-                                )
-                                .into())
-                            }
-                        };
-                        Ok(JavaOpCode::Ldc2W { value })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::ILOAD => Box::new(comb::map(num::be_u8, |index| {
-                    Ok(JavaOpCode::Iload { index })
+                opcode if opcode == Self::LDC2_W => Box::new(comb::map(num::be_u16, |index| {
+                    let entry = pool.get(index)?;
+                    let value = match entry {
+                        CPEntry::Double(d) => Either::Right(*d),
+                        CPEntry::Long(l) => Either::Left(*l),
+                        _ => {
+                            return Err(format!(
+                                "Ldc2W must refer to a double or a long. Refers to {}",
+                                entry.r#type(),
+                            )
+                            .into())
+                        }
+                    };
+                    Ok(Self::Ldc2W { value })
                 })),
-                opcode if opcode == JavaOpCode::LLOAD => Box::new(comb::map(num::be_u8, |index| {
-                    Ok(JavaOpCode::Lload { index })
-                })),
-                opcode if opcode == JavaOpCode::FLOAD => Box::new(comb::map(num::be_u8, |index| {
-                    Ok(JavaOpCode::Fload { index })
-                })),
-                opcode if opcode == JavaOpCode::DLOAD => Box::new(comb::map(num::be_u8, |index| {
-                    Ok(JavaOpCode::Dload { index })
-                })),
-                opcode if opcode == JavaOpCode::ALOAD => Box::new(comb::map(num::be_u8, |index| {
-                    Ok(JavaOpCode::Aload { index })
-                })),
-                opcode if opcode == JavaOpCode::ILOAD_0 => Box::new(just!(Ok(JavaOpCode::Iload0))),
-                opcode if opcode == JavaOpCode::ILOAD_1 => Box::new(just!(Ok(JavaOpCode::Iload1))),
-                opcode if opcode == JavaOpCode::ILOAD_2 => Box::new(just!(Ok(JavaOpCode::Iload2))),
-                opcode if opcode == JavaOpCode::ILOAD_3 => Box::new(just!(Ok(JavaOpCode::Iload3))),
-                opcode if opcode == JavaOpCode::LLOAD_0 => Box::new(just!(Ok(JavaOpCode::Lload0))),
-                opcode if opcode == JavaOpCode::LLOAD_1 => Box::new(just!(Ok(JavaOpCode::Lload1))),
-                opcode if opcode == JavaOpCode::LLOAD_2 => Box::new(just!(Ok(JavaOpCode::Lload2))),
-                opcode if opcode == JavaOpCode::LLOAD_3 => Box::new(just!(Ok(JavaOpCode::Lload3))),
-                opcode if opcode == JavaOpCode::FLOAD_0 => Box::new(just!(Ok(JavaOpCode::Fload0))),
-                opcode if opcode == JavaOpCode::FLOAD_1 => Box::new(just!(Ok(JavaOpCode::Fload1))),
-                opcode if opcode == JavaOpCode::FLOAD_2 => Box::new(just!(Ok(JavaOpCode::Fload2))),
-                opcode if opcode == JavaOpCode::FLOAD_3 => Box::new(just!(Ok(JavaOpCode::Fload3))),
-                opcode if opcode == JavaOpCode::DLOAD_0 => Box::new(just!(Ok(JavaOpCode::Dload0))),
-                opcode if opcode == JavaOpCode::DLOAD_1 => Box::new(just!(Ok(JavaOpCode::Dload1))),
-                opcode if opcode == JavaOpCode::DLOAD_2 => Box::new(just!(Ok(JavaOpCode::Dload2))),
-                opcode if opcode == JavaOpCode::DLOAD_3 => Box::new(just!(Ok(JavaOpCode::Dload3))),
-                opcode if opcode == JavaOpCode::ALOAD_0 => Box::new(just!(Ok(JavaOpCode::Aload0))),
-                opcode if opcode == JavaOpCode::ALOAD_1 => Box::new(just!(Ok(JavaOpCode::Aload1))),
-                opcode if opcode == JavaOpCode::ALOAD_2 => Box::new(just!(Ok(JavaOpCode::Aload2))),
-                opcode if opcode == JavaOpCode::ALOAD_3 => Box::new(just!(Ok(JavaOpCode::Aload3))),
-                opcode if opcode == JavaOpCode::IALOAD => Box::new(just!(Ok(JavaOpCode::Iaload))),
-                opcode if opcode == JavaOpCode::LALOAD => Box::new(just!(Ok(JavaOpCode::Laload))),
-                opcode if opcode == JavaOpCode::FALOAD => Box::new(just!(Ok(JavaOpCode::Faload))),
-                opcode if opcode == JavaOpCode::DALOAD => Box::new(just!(Ok(JavaOpCode::Daload))),
-                opcode if opcode == JavaOpCode::AALOAD => Box::new(just!(Ok(JavaOpCode::Aaload))),
-                opcode if opcode == JavaOpCode::BALOAD => Box::new(just!(Ok(JavaOpCode::Baload))),
-                opcode if opcode == JavaOpCode::CALOAD => Box::new(just!(Ok(JavaOpCode::Caload))),
-                opcode if opcode == JavaOpCode::ISTORE => {
-                    Box::new(comb::map(num::be_u8, |index| {
-                        Ok(JavaOpCode::Istore { index })
-                    }))
+                opcode if opcode == Self::ILOAD => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Iload { index })))
                 }
-                opcode if opcode == JavaOpCode::LSTORE => {
-                    Box::new(comb::map(num::be_u8, |index| {
-                        Ok(JavaOpCode::Lstore { index })
-                    }))
+                opcode if opcode == Self::LLOAD => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Lload { index })))
                 }
-                opcode if opcode == JavaOpCode::FSTORE => {
-                    Box::new(comb::map(num::be_u8, |index| {
-                        Ok(JavaOpCode::Fstore { index })
-                    }))
+                opcode if opcode == Self::FLOAD => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Fload { index })))
                 }
-                opcode if opcode == JavaOpCode::DSTORE => {
-                    Box::new(comb::map(num::be_u8, |index| {
-                        Ok(JavaOpCode::Dstore { index })
-                    }))
+                opcode if opcode == Self::DLOAD => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Dload { index })))
                 }
-                opcode if opcode == JavaOpCode::ASTORE => {
-                    Box::new(comb::map(num::be_u8, |index| {
-                        Ok(JavaOpCode::Astore { index })
-                    }))
+                opcode if opcode == Self::ALOAD => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Aload { index })))
                 }
-                opcode if opcode == JavaOpCode::ISTORE_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Istore0)))
+                opcode if opcode == Self::ILOAD_0 => Box::new(comb::success(Ok(Self::Iload0))),
+                opcode if opcode == Self::ILOAD_1 => Box::new(comb::success(Ok(Self::Iload1))),
+                opcode if opcode == Self::ILOAD_2 => Box::new(comb::success(Ok(Self::Iload2))),
+                opcode if opcode == Self::ILOAD_3 => Box::new(comb::success(Ok(Self::Iload3))),
+                opcode if opcode == Self::LLOAD_0 => Box::new(comb::success(Ok(Self::Lload0))),
+                opcode if opcode == Self::LLOAD_1 => Box::new(comb::success(Ok(Self::Lload1))),
+                opcode if opcode == Self::LLOAD_2 => Box::new(comb::success(Ok(Self::Lload2))),
+                opcode if opcode == Self::LLOAD_3 => Box::new(comb::success(Ok(Self::Lload3))),
+                opcode if opcode == Self::FLOAD_0 => Box::new(comb::success(Ok(Self::Fload0))),
+                opcode if opcode == Self::FLOAD_1 => Box::new(comb::success(Ok(Self::Fload1))),
+                opcode if opcode == Self::FLOAD_2 => Box::new(comb::success(Ok(Self::Fload2))),
+                opcode if opcode == Self::FLOAD_3 => Box::new(comb::success(Ok(Self::Fload3))),
+                opcode if opcode == Self::DLOAD_0 => Box::new(comb::success(Ok(Self::Dload0))),
+                opcode if opcode == Self::DLOAD_1 => Box::new(comb::success(Ok(Self::Dload1))),
+                opcode if opcode == Self::DLOAD_2 => Box::new(comb::success(Ok(Self::Dload2))),
+                opcode if opcode == Self::DLOAD_3 => Box::new(comb::success(Ok(Self::Dload3))),
+                opcode if opcode == Self::ALOAD_0 => Box::new(comb::success(Ok(Self::Aload0))),
+                opcode if opcode == Self::ALOAD_1 => Box::new(comb::success(Ok(Self::Aload1))),
+                opcode if opcode == Self::ALOAD_2 => Box::new(comb::success(Ok(Self::Aload2))),
+                opcode if opcode == Self::ALOAD_3 => Box::new(comb::success(Ok(Self::Aload3))),
+                opcode if opcode == Self::IALOAD => Box::new(comb::success(Ok(Self::Iaload))),
+                opcode if opcode == Self::LALOAD => Box::new(comb::success(Ok(Self::Laload))),
+                opcode if opcode == Self::FALOAD => Box::new(comb::success(Ok(Self::Faload))),
+                opcode if opcode == Self::DALOAD => Box::new(comb::success(Ok(Self::Daload))),
+                opcode if opcode == Self::AALOAD => Box::new(comb::success(Ok(Self::Aaload))),
+                opcode if opcode == Self::BALOAD => Box::new(comb::success(Ok(Self::Baload))),
+                opcode if opcode == Self::CALOAD => Box::new(comb::success(Ok(Self::Caload))),
+                opcode if opcode == Self::SALOAD => Box::new(comb::success(Ok(Self::Saload))),
+                opcode if opcode == Self::ISTORE => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Istore { index })))
                 }
-                opcode if opcode == JavaOpCode::ISTORE_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Istore1)))
+                opcode if opcode == Self::LSTORE => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Lstore { index })))
                 }
-                opcode if opcode == JavaOpCode::ISTORE_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Istore2)))
+                opcode if opcode == Self::FSTORE => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Fstore { index })))
                 }
-                opcode if opcode == JavaOpCode::ISTORE_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Istore3)))
+                opcode if opcode == Self::DSTORE => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Dstore { index })))
                 }
-                opcode if opcode == JavaOpCode::LSTORE_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Lstore0)))
+                opcode if opcode == Self::ASTORE => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Astore { index })))
                 }
-                opcode if opcode == JavaOpCode::LSTORE_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Lstore1)))
-                }
-                opcode if opcode == JavaOpCode::LSTORE_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Lstore2)))
-                }
-                opcode if opcode == JavaOpCode::LSTORE_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Lstore3)))
-                }
-                opcode if opcode == JavaOpCode::FSTORE_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Fstore0)))
-                }
-                opcode if opcode == JavaOpCode::FSTORE_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Fstore1)))
-                }
-                opcode if opcode == JavaOpCode::FSTORE_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Fstore2)))
-                }
-                opcode if opcode == JavaOpCode::FSTORE_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Fstore3)))
-                }
-                opcode if opcode == JavaOpCode::DSTORE_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Dstore0)))
-                }
-                opcode if opcode == JavaOpCode::DSTORE_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Dstore1)))
-                }
-                opcode if opcode == JavaOpCode::DSTORE_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Dstore2)))
-                }
-                opcode if opcode == JavaOpCode::DSTORE_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Dstore3)))
-                }
-                opcode if opcode == JavaOpCode::ASTORE_0 => {
-                    Box::new(just!(Ok(JavaOpCode::Astore0)))
-                }
-                opcode if opcode == JavaOpCode::ASTORE_1 => {
-                    Box::new(just!(Ok(JavaOpCode::Astore1)))
-                }
-                opcode if opcode == JavaOpCode::ASTORE_2 => {
-                    Box::new(just!(Ok(JavaOpCode::Astore2)))
-                }
-                opcode if opcode == JavaOpCode::ASTORE_3 => {
-                    Box::new(just!(Ok(JavaOpCode::Astore3)))
-                }
-                opcode if opcode == JavaOpCode::IASTORE => Box::new(just!(Ok(JavaOpCode::Iastore))),
-                opcode if opcode == JavaOpCode::LASTORE => Box::new(just!(Ok(JavaOpCode::Lastore))),
-                opcode if opcode == JavaOpCode::FASTORE => Box::new(just!(Ok(JavaOpCode::Fastore))),
-                opcode if opcode == JavaOpCode::DASTORE => Box::new(just!(Ok(JavaOpCode::Dastore))),
-                opcode if opcode == JavaOpCode::AASTORE => Box::new(just!(Ok(JavaOpCode::Aastore))),
-                opcode if opcode == JavaOpCode::BASTORE => Box::new(just!(Ok(JavaOpCode::Bastore))),
-                opcode if opcode == JavaOpCode::CASTORE => Box::new(just!(Ok(JavaOpCode::Castore))),
-                opcode if opcode == JavaOpCode::POP => Box::new(just!(Ok(JavaOpCode::Pop))),
-                opcode if opcode == JavaOpCode::POP2 => Box::new(just!(Ok(JavaOpCode::Pop2))),
-                opcode if opcode == JavaOpCode::DUP => Box::new(just!(Ok(JavaOpCode::Dup))),
-                opcode if opcode == JavaOpCode::DUP_X1 => Box::new(just!(Ok(JavaOpCode::DupX1))),
-                opcode if opcode == JavaOpCode::DUP_X2 => Box::new(just!(Ok(JavaOpCode::DupX2))),
-                opcode if opcode == JavaOpCode::DUP2 => Box::new(just!(Ok(JavaOpCode::Dup2))),
-                opcode if opcode == JavaOpCode::DUP2_X1 => Box::new(just!(Ok(JavaOpCode::Dup2X1))),
-                opcode if opcode == JavaOpCode::DUP2_X2 => Box::new(just!(Ok(JavaOpCode::Dup2X2))),
-                opcode if opcode == JavaOpCode::IADD => Box::new(just!(Ok(JavaOpCode::Iadd))),
-                opcode if opcode == JavaOpCode::LADD => Box::new(just!(Ok(JavaOpCode::Ladd))),
-                opcode if opcode == JavaOpCode::FADD => Box::new(just!(Ok(JavaOpCode::Fadd))),
-                opcode if opcode == JavaOpCode::DADD => Box::new(just!(Ok(JavaOpCode::Dadd))),
-                opcode if opcode == JavaOpCode::ISUB => Box::new(just!(Ok(JavaOpCode::Isub))),
-                opcode if opcode == JavaOpCode::LSUB => Box::new(just!(Ok(JavaOpCode::Lsub))),
-                opcode if opcode == JavaOpCode::FSUB => Box::new(just!(Ok(JavaOpCode::Fsub))),
-                opcode if opcode == JavaOpCode::DSUB => Box::new(just!(Ok(JavaOpCode::Dsub))),
-                opcode if opcode == JavaOpCode::IMUL => Box::new(just!(Ok(JavaOpCode::Imul))),
-                opcode if opcode == JavaOpCode::LMUL => Box::new(just!(Ok(JavaOpCode::Lmul))),
-                opcode if opcode == JavaOpCode::FMUL => Box::new(just!(Ok(JavaOpCode::Fmul))),
-                opcode if opcode == JavaOpCode::DMUL => Box::new(just!(Ok(JavaOpCode::Dmul))),
-                opcode if opcode == JavaOpCode::IDIV => Box::new(just!(Ok(JavaOpCode::Idiv))),
-                opcode if opcode == JavaOpCode::LDIV => Box::new(just!(Ok(JavaOpCode::Ldiv))),
-                opcode if opcode == JavaOpCode::FDIV => Box::new(just!(Ok(JavaOpCode::Fdiv))),
-                opcode if opcode == JavaOpCode::DDIV => Box::new(just!(Ok(JavaOpCode::Ddiv))),
-                opcode if opcode == JavaOpCode::IREM => Box::new(just!(Ok(JavaOpCode::Irem))),
-                opcode if opcode == JavaOpCode::LREM => Box::new(just!(Ok(JavaOpCode::Lrem))),
-                opcode if opcode == JavaOpCode::FREM => Box::new(just!(Ok(JavaOpCode::Frem))),
-                opcode if opcode == JavaOpCode::DREM => Box::new(just!(Ok(JavaOpCode::Drem))),
-                opcode if opcode == JavaOpCode::INEG => Box::new(just!(Ok(JavaOpCode::Ineg))),
-                opcode if opcode == JavaOpCode::LNEG => Box::new(just!(Ok(JavaOpCode::Lneg))),
-                opcode if opcode == JavaOpCode::FNEG => Box::new(just!(Ok(JavaOpCode::Fneg))),
-                opcode if opcode == JavaOpCode::DNEG => Box::new(just!(Ok(JavaOpCode::Dneg))),
-                opcode if opcode == JavaOpCode::ISHL => Box::new(just!(Ok(JavaOpCode::Ishl))),
-                opcode if opcode == JavaOpCode::LSHL => Box::new(just!(Ok(JavaOpCode::Lshl))),
-                opcode if opcode == JavaOpCode::ISHR => Box::new(just!(Ok(JavaOpCode::Ishr))),
-                opcode if opcode == JavaOpCode::LSHR => Box::new(just!(Ok(JavaOpCode::Lshr))),
-                opcode if opcode == JavaOpCode::IUSHR => Box::new(just!(Ok(JavaOpCode::Iushr))),
-                opcode if opcode == JavaOpCode::LUSHR => Box::new(just!(Ok(JavaOpCode::Lushr))),
-                opcode if opcode == JavaOpCode::IAND => Box::new(just!(Ok(JavaOpCode::Iand))),
-                opcode if opcode == JavaOpCode::LAND => Box::new(just!(Ok(JavaOpCode::Land))),
-                opcode if opcode == JavaOpCode::IOR => Box::new(just!(Ok(JavaOpCode::Ior))),
-                opcode if opcode == JavaOpCode::LOR => Box::new(just!(Ok(JavaOpCode::Lor))),
-                opcode if opcode == JavaOpCode::IXOR => Box::new(just!(Ok(JavaOpCode::Ixor))),
-                opcode if opcode == JavaOpCode::LXOR => Box::new(just!(Ok(JavaOpCode::Lxor))),
-                opcode if opcode == JavaOpCode::IINC => Box::new(comb::map(
+                opcode if opcode == Self::ISTORE_0 => Box::new(comb::success(Ok(Self::Istore0))),
+                opcode if opcode == Self::ISTORE_1 => Box::new(comb::success(Ok(Self::Istore1))),
+                opcode if opcode == Self::ISTORE_2 => Box::new(comb::success(Ok(Self::Istore2))),
+                opcode if opcode == Self::ISTORE_3 => Box::new(comb::success(Ok(Self::Istore3))),
+                opcode if opcode == Self::LSTORE_0 => Box::new(comb::success(Ok(Self::Lstore0))),
+                opcode if opcode == Self::LSTORE_1 => Box::new(comb::success(Ok(Self::Lstore1))),
+                opcode if opcode == Self::LSTORE_2 => Box::new(comb::success(Ok(Self::Lstore2))),
+                opcode if opcode == Self::LSTORE_3 => Box::new(comb::success(Ok(Self::Lstore3))),
+                opcode if opcode == Self::FSTORE_0 => Box::new(comb::success(Ok(Self::Fstore0))),
+                opcode if opcode == Self::FSTORE_1 => Box::new(comb::success(Ok(Self::Fstore1))),
+                opcode if opcode == Self::FSTORE_2 => Box::new(comb::success(Ok(Self::Fstore2))),
+                opcode if opcode == Self::FSTORE_3 => Box::new(comb::success(Ok(Self::Fstore3))),
+                opcode if opcode == Self::DSTORE_0 => Box::new(comb::success(Ok(Self::Dstore0))),
+                opcode if opcode == Self::DSTORE_1 => Box::new(comb::success(Ok(Self::Dstore1))),
+                opcode if opcode == Self::DSTORE_2 => Box::new(comb::success(Ok(Self::Dstore2))),
+                opcode if opcode == Self::DSTORE_3 => Box::new(comb::success(Ok(Self::Dstore3))),
+                opcode if opcode == Self::ASTORE_0 => Box::new(comb::success(Ok(Self::Astore0))),
+                opcode if opcode == Self::ASTORE_1 => Box::new(comb::success(Ok(Self::Astore1))),
+                opcode if opcode == Self::ASTORE_2 => Box::new(comb::success(Ok(Self::Astore2))),
+                opcode if opcode == Self::ASTORE_3 => Box::new(comb::success(Ok(Self::Astore3))),
+                opcode if opcode == Self::IASTORE => Box::new(comb::success(Ok(Self::Iastore))),
+                opcode if opcode == Self::LASTORE => Box::new(comb::success(Ok(Self::Lastore))),
+                opcode if opcode == Self::FASTORE => Box::new(comb::success(Ok(Self::Fastore))),
+                opcode if opcode == Self::DASTORE => Box::new(comb::success(Ok(Self::Dastore))),
+                opcode if opcode == Self::AASTORE => Box::new(comb::success(Ok(Self::Aastore))),
+                opcode if opcode == Self::BASTORE => Box::new(comb::success(Ok(Self::Bastore))),
+                opcode if opcode == Self::CASTORE => Box::new(comb::success(Ok(Self::Castore))),
+                opcode if opcode == Self::SASTORE => Box::new(comb::success(Ok(Self::Sastore))),
+                opcode if opcode == Self::POP => Box::new(comb::success(Ok(Self::Pop))),
+                opcode if opcode == Self::POP2 => Box::new(comb::success(Ok(Self::Pop2))),
+                opcode if opcode == Self::DUP => Box::new(comb::success(Ok(Self::Dup))),
+                opcode if opcode == Self::DUP_X1 => Box::new(comb::success(Ok(Self::DupX1))),
+                opcode if opcode == Self::DUP_X2 => Box::new(comb::success(Ok(Self::DupX2))),
+                opcode if opcode == Self::DUP2 => Box::new(comb::success(Ok(Self::Dup2))),
+                opcode if opcode == Self::DUP2_X1 => Box::new(comb::success(Ok(Self::Dup2X1))),
+                opcode if opcode == Self::DUP2_X2 => Box::new(comb::success(Ok(Self::Dup2X2))),
+                opcode if opcode == Self::SWAP => Box::new(comb::success(Ok(Self::Swap))),
+                opcode if opcode == Self::IADD => Box::new(comb::success(Ok(Self::Iadd))),
+                opcode if opcode == Self::LADD => Box::new(comb::success(Ok(Self::Ladd))),
+                opcode if opcode == Self::FADD => Box::new(comb::success(Ok(Self::Fadd))),
+                opcode if opcode == Self::DADD => Box::new(comb::success(Ok(Self::Dadd))),
+                opcode if opcode == Self::ISUB => Box::new(comb::success(Ok(Self::Isub))),
+                opcode if opcode == Self::LSUB => Box::new(comb::success(Ok(Self::Lsub))),
+                opcode if opcode == Self::FSUB => Box::new(comb::success(Ok(Self::Fsub))),
+                opcode if opcode == Self::DSUB => Box::new(comb::success(Ok(Self::Dsub))),
+                opcode if opcode == Self::IMUL => Box::new(comb::success(Ok(Self::Imul))),
+                opcode if opcode == Self::LMUL => Box::new(comb::success(Ok(Self::Lmul))),
+                opcode if opcode == Self::FMUL => Box::new(comb::success(Ok(Self::Fmul))),
+                opcode if opcode == Self::DMUL => Box::new(comb::success(Ok(Self::Dmul))),
+                opcode if opcode == Self::IDIV => Box::new(comb::success(Ok(Self::Idiv))),
+                opcode if opcode == Self::LDIV => Box::new(comb::success(Ok(Self::Ldiv))),
+                opcode if opcode == Self::FDIV => Box::new(comb::success(Ok(Self::Fdiv))),
+                opcode if opcode == Self::DDIV => Box::new(comb::success(Ok(Self::Ddiv))),
+                opcode if opcode == Self::IREM => Box::new(comb::success(Ok(Self::Irem))),
+                opcode if opcode == Self::LREM => Box::new(comb::success(Ok(Self::Lrem))),
+                opcode if opcode == Self::FREM => Box::new(comb::success(Ok(Self::Frem))),
+                opcode if opcode == Self::DREM => Box::new(comb::success(Ok(Self::Drem))),
+                opcode if opcode == Self::INEG => Box::new(comb::success(Ok(Self::Ineg))),
+                opcode if opcode == Self::LNEG => Box::new(comb::success(Ok(Self::Lneg))),
+                opcode if opcode == Self::FNEG => Box::new(comb::success(Ok(Self::Fneg))),
+                opcode if opcode == Self::DNEG => Box::new(comb::success(Ok(Self::Dneg))),
+                opcode if opcode == Self::ISHL => Box::new(comb::success(Ok(Self::Ishl))),
+                opcode if opcode == Self::LSHL => Box::new(comb::success(Ok(Self::Lshl))),
+                opcode if opcode == Self::ISHR => Box::new(comb::success(Ok(Self::Ishr))),
+                opcode if opcode == Self::LSHR => Box::new(comb::success(Ok(Self::Lshr))),
+                opcode if opcode == Self::IUSHR => Box::new(comb::success(Ok(Self::Iushr))),
+                opcode if opcode == Self::LUSHR => Box::new(comb::success(Ok(Self::Lushr))),
+                opcode if opcode == Self::IAND => Box::new(comb::success(Ok(Self::Iand))),
+                opcode if opcode == Self::LAND => Box::new(comb::success(Ok(Self::Land))),
+                opcode if opcode == Self::IOR => Box::new(comb::success(Ok(Self::Ior))),
+                opcode if opcode == Self::LOR => Box::new(comb::success(Ok(Self::Lor))),
+                opcode if opcode == Self::IXOR => Box::new(comb::success(Ok(Self::Ixor))),
+                opcode if opcode == Self::LXOR => Box::new(comb::success(Ok(Self::Lxor))),
+                opcode if opcode == Self::IINC => Box::new(comb::map(
                     sequence::pair(num::be_u8, num::be_i8),
-                    |(index, delta)| Ok(JavaOpCode::Iinc { index, delta }),
+                    |(index, delta)| Ok(Self::Iinc { index, delta }),
                 )),
-                opcode if opcode == JavaOpCode::I2L => Box::new(just!(Ok(JavaOpCode::I2l))),
-                opcode if opcode == JavaOpCode::I2F => Box::new(just!(Ok(JavaOpCode::I2f))),
-                opcode if opcode == JavaOpCode::I2D => Box::new(just!(Ok(JavaOpCode::I2d))),
-                opcode if opcode == JavaOpCode::L2I => Box::new(just!(Ok(JavaOpCode::L2i))),
-                opcode if opcode == JavaOpCode::L2F => Box::new(just!(Ok(JavaOpCode::L2f))),
-                opcode if opcode == JavaOpCode::L2D => Box::new(just!(Ok(JavaOpCode::L2d))),
-                opcode if opcode == JavaOpCode::F2I => Box::new(just!(Ok(JavaOpCode::F2i))),
-                opcode if opcode == JavaOpCode::F2L => Box::new(just!(Ok(JavaOpCode::F2l))),
-                opcode if opcode == JavaOpCode::F2D => Box::new(just!(Ok(JavaOpCode::F2d))),
-                opcode if opcode == JavaOpCode::D2I => Box::new(just!(Ok(JavaOpCode::D2i))),
-                opcode if opcode == JavaOpCode::D2L => Box::new(just!(Ok(JavaOpCode::D2l))),
-                opcode if opcode == JavaOpCode::D2F => Box::new(just!(Ok(JavaOpCode::D2f))),
-                opcode if opcode == JavaOpCode::I2B => Box::new(just!(Ok(JavaOpCode::I2b))),
-                opcode if opcode == JavaOpCode::I2C => Box::new(just!(Ok(JavaOpCode::I2c))),
-                opcode if opcode == JavaOpCode::I2S => Box::new(just!(Ok(JavaOpCode::I2s))),
-                opcode if opcode == JavaOpCode::LCMP => Box::new(just!(Ok(JavaOpCode::Lcmp))),
-                opcode if opcode == JavaOpCode::FCMPL => Box::new(just!(Ok(JavaOpCode::Fcmpl))),
-                opcode if opcode == JavaOpCode::FCMPG => Box::new(just!(Ok(JavaOpCode::Fcmpg))),
-                opcode if opcode == JavaOpCode::DCMPL => Box::new(just!(Ok(JavaOpCode::Dcmpl))),
-                opcode if opcode == JavaOpCode::DCMPG => Box::new(just!(Ok(JavaOpCode::Dcmpg))),
-                opcode if opcode == JavaOpCode::IFEQ => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifeq { offset })
-                    }))
+                opcode if opcode == Self::I2L => Box::new(comb::success(Ok(Self::I2l))),
+                opcode if opcode == Self::I2F => Box::new(comb::success(Ok(Self::I2f))),
+                opcode if opcode == Self::I2D => Box::new(comb::success(Ok(Self::I2d))),
+                opcode if opcode == Self::L2I => Box::new(comb::success(Ok(Self::L2i))),
+                opcode if opcode == Self::L2F => Box::new(comb::success(Ok(Self::L2f))),
+                opcode if opcode == Self::L2D => Box::new(comb::success(Ok(Self::L2d))),
+                opcode if opcode == Self::F2I => Box::new(comb::success(Ok(Self::F2i))),
+                opcode if opcode == Self::F2L => Box::new(comb::success(Ok(Self::F2l))),
+                opcode if opcode == Self::F2D => Box::new(comb::success(Ok(Self::F2d))),
+                opcode if opcode == Self::D2I => Box::new(comb::success(Ok(Self::D2i))),
+                opcode if opcode == Self::D2L => Box::new(comb::success(Ok(Self::D2l))),
+                opcode if opcode == Self::D2F => Box::new(comb::success(Ok(Self::D2f))),
+                opcode if opcode == Self::I2B => Box::new(comb::success(Ok(Self::I2b))),
+                opcode if opcode == Self::I2C => Box::new(comb::success(Ok(Self::I2c))),
+                opcode if opcode == Self::I2S => Box::new(comb::success(Ok(Self::I2s))),
+                opcode if opcode == Self::LCMP => Box::new(comb::success(Ok(Self::Lcmp))),
+                opcode if opcode == Self::FCMPL => Box::new(comb::success(Ok(Self::Fcmpl))),
+                opcode if opcode == Self::FCMPG => Box::new(comb::success(Ok(Self::Fcmpg))),
+                opcode if opcode == Self::DCMPL => Box::new(comb::success(Ok(Self::Dcmpl))),
+                opcode if opcode == Self::DCMPG => Box::new(comb::success(Ok(Self::Dcmpg))),
+                opcode if opcode == Self::IFEQ => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifeq { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFNE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifne { offset })
-                    }))
+                opcode if opcode == Self::IFNE => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifne { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFLT => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Iflt { offset })
-                    }))
+                opcode if opcode == Self::IFLT => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Iflt { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFGE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifge { offset })
-                    }))
+                opcode if opcode == Self::IFGE => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifge { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFGT => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifgt { offset })
-                    }))
+                opcode if opcode == Self::IFGT => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifgt { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFLE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifle { offset })
-                    }))
+                opcode if opcode == Self::IFLE => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifle { offset })))
                 }
-                opcode if opcode == JavaOpCode::IF_ICMPEQ => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmpeq { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ICMPNE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmpne { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ICMPLT => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmplt { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ICMPGE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmpge { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ICMPGT => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmpgt { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ICMPLE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfIcmple { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ACMPEQ => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfAcmpeq { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::IF_ACMPNE => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::IfAcmpne { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::GOTO => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Goto { offset })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::JSR => Box::new(comb::map(num::be_i16, |offset| {
-                    Ok(JavaOpCode::Jsr { offset })
+                opcode if opcode == Self::IF_ICMPEQ => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmpeq { offset })
                 })),
-                opcode if opcode == JavaOpCode::LOOKUPSWITCH => Box::new(comb::map(
+                opcode if opcode == Self::IF_ICMPNE => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmpne { offset })
+                })),
+                opcode if opcode == Self::IF_ICMPLT => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmplt { offset })
+                })),
+                opcode if opcode == Self::IF_ICMPGE => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmpge { offset })
+                })),
+                opcode if opcode == Self::IF_ICMPGT => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmpgt { offset })
+                })),
+                opcode if opcode == Self::IF_ICMPLE => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfIcmple { offset })
+                })),
+                opcode if opcode == Self::IF_ACMPEQ => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfAcmpeq { offset })
+                })),
+                opcode if opcode == Self::IF_ACMPNE => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::IfAcmpne { offset })
+                })),
+                opcode if opcode == Self::GOTO => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Goto { offset })))
+                }
+                opcode if opcode == Self::JSR => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Jsr { offset })))
+                }
+                opcode if opcode == Self::RET => {
+                    Box::new(comb::map(num::be_u8, |index| Ok(Self::Ret { index })))
+                }
+                opcode if opcode == Self::TABLESWITCH => Box::new(comb::map(
+                    comb::flat_map(
+                        sequence::tuple((
+                            sequence::preceded(
+                                multi::count(bytes::tag([0]), ((idx + 1) % 4) as usize),
+                                num::be_i32,
+                            ),
+                            num::be_i32,
+                            num::be_i32,
+                        )),
+                        |(default, low, high)| {
+                            sequence::tuple((
+                                comb::success(default),
+                                comb::success(low),
+                                comb::success(high),
+                                multi::count(num::be_i32, (high - low + 1) as usize),
+                            ))
+                        },
+                    ),
+                    |(default, low, high, offsets)| {
+                        Ok(Self::Tableswitch {
+                            default,
+                            low,
+                            high,
+                            offsets,
+                        })
+                    },
+                )),
+                opcode if opcode == Self::LOOKUPSWITCH => Box::new(comb::map(
                     sequence::pair(
-                        sequence::preceded(bytes::take((idx + 1) % 4), num::be_i32),
+                        sequence::preceded(
+                            multi::count(bytes::tag([0]), ((idx + 1) % 4) as usize),
+                            num::be_i32,
+                        ),
                         comb::flat_map(num::be_i32, |num_pairs| {
-                            multi::many_m_n(
-                                num_pairs as usize,
-                                num_pairs as usize,
+                            multi::count(
                                 sequence::pair(num::be_i32, num::be_i32),
+                                num_pairs as usize,
                             )
                         }),
                     ),
                     |(default_offset, match_offsets)| {
-                        Ok(JavaOpCode::Lookupswitch {
+                        Ok(Self::Lookupswitch {
                             default_offset,
                             match_offsets,
                         })
                     },
                 )),
-                opcode if opcode == JavaOpCode::IRETURN => Box::new(just!(Ok(JavaOpCode::Ireturn))),
-                opcode if opcode == JavaOpCode::LRETURN => Box::new(just!(Ok(JavaOpCode::Lreturn))),
-                opcode if opcode == JavaOpCode::FRETURN => Box::new(just!(Ok(JavaOpCode::Freturn))),
-                opcode if opcode == JavaOpCode::DRETURN => Box::new(just!(Ok(JavaOpCode::Dreturn))),
-                opcode if opcode == JavaOpCode::ARETURN => Box::new(just!(Ok(JavaOpCode::Areturn))),
-                opcode if opcode == JavaOpCode::GETSTATIC => {
+                opcode if opcode == Self::IRETURN => Box::new(comb::success(Ok(Self::Ireturn))),
+                opcode if opcode == Self::LRETURN => Box::new(comb::success(Ok(Self::Lreturn))),
+                opcode if opcode == Self::FRETURN => Box::new(comb::success(Ok(Self::Freturn))),
+                opcode if opcode == Self::DRETURN => Box::new(comb::success(Ok(Self::Dreturn))),
+                opcode if opcode == Self::ARETURN => Box::new(comb::success(Ok(Self::Areturn))),
+                opcode if opcode == Self::RETURN => Box::new(comb::success(Ok(Self::Return))),
+                opcode if opcode == Self::GETSTATIC => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Getstatic {
+                        field: pool.get_field_ref(index)?,
+                    })
+                })),
+                opcode if opcode == Self::PUTSTATIC => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Putstatic {
+                        field: pool.get_field_ref(index)?,
+                    })
+                })),
+                opcode if opcode == Self::GETFIELD => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Getfield {
+                        field: pool.get_field_ref(index)?,
+                    })
+                })),
+                opcode if opcode == Self::PUTFIELD => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Putfield {
+                        field: pool.get_field_ref(index)?,
+                    })
+                })),
+                opcode if opcode == Self::INVOKEVIRTUAL => {
                     Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Getstatic {
-                            field: pool.get_field_ref(index)?,
-                        })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::GETFIELD => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Getfield {
-                            field: pool.get_field_ref(index)?,
-                        })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::PUTFIELD => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Putfield {
-                            field: pool.get_field_ref(index)?,
-                        })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::INVOKEVIRTUAL => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Invokevirtual {
+                        Ok(Self::Invokevirtual {
                             method: pool.get_method_ref(index)?,
                         })
                     }))
                 }
-                opcode if opcode == JavaOpCode::INVOKESPECIAL => {
+                opcode if opcode == Self::INVOKESPECIAL => {
                     Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Invokespecial {
+                        Ok(Self::Invokespecial {
                             method: pool.get_method_ref(index)?,
                         })
                     }))
                 }
-                opcode if opcode == JavaOpCode::INVOKESTATIC => {
+                opcode if opcode == Self::INVOKESTATIC => {
                     Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Invokestatic {
+                        Ok(Self::Invokestatic {
                             method: pool.get_method_ref(index)?,
                         })
                     }))
                 }
-                opcode if opcode == JavaOpCode::INVOKEDYNAMIC => {
+                opcode if opcode == Self::INVOKEINTERFACE => Box::new(comb::map(
+                    sequence::pair(
+                        num::be_u16,
+                        sequence::terminated(num::be_u8, bytes::tag(b"0")),
+                    ),
+                    |(index, num_arg_bytes)| {
+                        Ok(Self::Invokeinterface {
+                            method: pool.get_method_ref(index)?,
+                            num_arg_bytes,
+                        })
+                    },
+                )),
+                opcode if opcode == Self::INVOKEDYNAMIC => {
                     Box::new(comb::map(
                         // Gets a u16 then reads and ignores two zero bytes.
                         sequence::terminated(num::be_u16, bytes::tag(&[0, 0][..])),
                         |index| match pool.get(index)? {
                             &CPEntry::InvokeDynamic(bootstrap_idx, nat_idx) => {
                                 let (name, r#type) = pool.get_name_and_type(nat_idx)?;
-                                Ok(JavaOpCode::Invokedynamic {
+                                Ok(Self::Invokedynamic {
                                     bootstrap_idx,
                                     name,
                                     r#type,
@@ -2967,81 +3523,112 @@ impl<'i, 'pool> NomParse<(u16, &'pool ConstantPool), &'i [u8]> for JavaOpCode {
                         },
                     ))
                 }
-                opcode if opcode == JavaOpCode::NEW => Box::new(comb::map(num::be_u16, |index| {
-                    Ok(JavaOpCode::New {
+                opcode if opcode == Self::NEW => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::New {
                         type_name: pool.get_class_name(index)?,
                     })
                 })),
-                opcode if opcode == JavaOpCode::NEWARRAY => {
+                opcode if opcode == Self::NEWARRAY => {
                     Box::new(comb::map(PrimitiveValueType::nom_parse_cf, |r#type| {
-                        Ok(JavaOpCode::Newarray { r#type })
+                        Ok(Self::Newarray { r#type })
                     }))
                 }
-                opcode if opcode == JavaOpCode::ANEWARRAY => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Anewarray {
-                            el_type: pool.get_class_name(index)?,
-                        })
-                    }))
+                opcode if opcode == Self::ANEWARRAY => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Anewarray {
+                        el_type: pool.get_class_name(index)?,
+                    })
+                })),
+                opcode if opcode == Self::ARRAYLENGTH => {
+                    Box::new(comb::success(Ok(Self::Arraylength)))
                 }
-                opcode if opcode == JavaOpCode::ARRAYLENGTH => {
-                    Box::new(just!(Ok(JavaOpCode::Arraylength)))
+                opcode if opcode == Self::ATHROW => Box::new(comb::success(Ok(Self::Athrow))),
+                opcode if opcode == Self::CHECKCAST => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Checkcast {
+                        type_name: pool.get_class_name(index)?,
+                    })
+                })),
+                opcode if opcode == Self::INSTANCEOF => Box::new(comb::map(num::be_u16, |index| {
+                    Ok(Self::Instanceof {
+                        type_name: pool.get_class_name(index)?,
+                    })
+                })),
+                opcode if opcode == Self::MONITORENTER => {
+                    Box::new(comb::success(Ok(Self::Monitorenter)))
                 }
-                opcode if opcode == JavaOpCode::ATHROW => Box::new(just!(Ok(JavaOpCode::Athrow))),
-                opcode if opcode == JavaOpCode::CHECKCAST => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Checkcast {
-                            type_name: pool.get_class_name(index)?,
-                        })
-                    }))
+                opcode if opcode == Self::MONITOREXIT => {
+                    Box::new(comb::success(Ok(Self::Monitorexit)))
                 }
-                opcode if opcode == JavaOpCode::INSTANCEOF => {
-                    Box::new(comb::map(num::be_u16, |index| {
-                        Ok(JavaOpCode::Instanceof {
-                            type_name: pool.get_class_name(index)?,
-                        })
-                    }))
-                }
-                opcode if opcode == JavaOpCode::MONITORENTER => {
-                    Box::new(just!(Ok(JavaOpCode::Monitorenter)))
-                }
-                opcode if opcode == JavaOpCode::MONITOREXIT => {
-                    Box::new(just!(Ok(JavaOpCode::Monitorexit)))
-                }
-                opcode if opcode == JavaOpCode::MULTIANEWARRAY => Box::new(comb::map(
+                opcode if opcode == Self::WIDE => Box::new(branch::alt((
+                    sequence::preceded(
+                        bytes::tag([Self::IINC]),
+                        comb::map(
+                            sequence::pair(num::be_u16, num::be_i16),
+                            |(index, delta)| Ok(Self::WideIinc { index, delta }),
+                        ),
+                    ),
+                    comb::map(
+                        sequence::pair(WideOpCode::nom_parse_cf, num::be_u16),
+                        |(opcode, index)| Ok(Self::Wide { opcode, index }),
+                    ),
+                ))),
+                opcode if opcode == Self::MULTIANEWARRAY => Box::new(comb::map(
                     sequence::pair(num::be_i16, num::be_u8),
                     |(index, dimensions)| {
                         if dimensions == 0 {
                             Err("`multianewarray` requires at least one dimension.")?
                         } else {
-                            Ok(JavaOpCode::Multianewarray { index, dimensions })
+                            Ok(Self::Multianewarray { index, dimensions })
                         }
                     },
                 )),
-                opcode if opcode == JavaOpCode::IFNULL => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifnull { offset })
-                    }))
+                opcode if opcode == Self::IFNULL => {
+                    Box::new(comb::map(num::be_i16, |offset| Ok(Self::Ifnull { offset })))
                 }
-                opcode if opcode == JavaOpCode::IFNONNULL => {
-                    Box::new(comb::map(num::be_i16, |offset| {
-                        Ok(JavaOpCode::Ifnonnull { offset })
-                    }))
+                opcode if opcode == Self::IFNONNULL => Box::new(comb::map(num::be_i16, |offset| {
+                    Ok(Self::Ifnonnull { offset })
+                })),
+                opcode if opcode == Self::GOTO_W => {
+                    Box::new(comb::map(num::be_i32, |offset| Ok(Self::GotoW { offset })))
                 }
-                opcode if opcode == JavaOpCode::GOTO_W => {
-                    Box::new(comb::map(num::be_i32, |offset| {
-                        Ok(JavaOpCode::GotoW { offset })
-                    }))
+                opcode if opcode == Self::JSR_W => {
+                    Box::new(comb::map(num::be_i32, |offset| Ok(Self::JsrW { offset })))
                 }
-                opcode if opcode == JavaOpCode::JSR_W => {
-                    Box::new(comb::map(num::be_i32, |offset| {
-                        Ok(JavaOpCode::JsrW { offset })
-                    }))
-                }
-                opcode => unimplemented!("JavaOpCode::nom_parse: opcode == 0x{:2X}", opcode),
+                opcode => unimplemented!("Self::nom_parse: opcode == 0x{:2X}", opcode),
             };
             ret
         })(s)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum WideOpCode {
+    Iload = JavaOpCode::ILOAD,
+    Lload = JavaOpCode::LLOAD,
+    Fload = JavaOpCode::FLOAD,
+    Dload = JavaOpCode::DLOAD,
+    Aload = JavaOpCode::ALOAD,
+    Istore = JavaOpCode::ISTORE,
+    Lstore = JavaOpCode::LSTORE,
+    Fstore = JavaOpCode::FSTORE,
+    Dstore = JavaOpCode::DSTORE,
+    Astore = JavaOpCode::ASTORE,
+}
+
+impl<'i> NomParse<(), &'i [u8]> for WideOpCode {
+    fn nom_parse(_: (), s: &'i [u8]) -> IResult<Self::Input, Self::Output> {
+        branch::alt((
+            comb::value(Self::Iload, bytes::tag([Self::Iload as u8])),
+            comb::value(Self::Lload, bytes::tag([Self::Lload as u8])),
+            comb::value(Self::Fload, bytes::tag([Self::Fload as u8])),
+            comb::value(Self::Dload, bytes::tag([Self::Dload as u8])),
+            comb::value(Self::Aload, bytes::tag([Self::Aload as u8])),
+            comb::value(Self::Istore, bytes::tag([Self::Istore as u8])),
+            comb::value(Self::Lstore, bytes::tag([Self::Lstore as u8])),
+            comb::value(Self::Fstore, bytes::tag([Self::Fstore as u8])),
+            comb::value(Self::Dstore, bytes::tag([Self::Dstore as u8])),
+            comb::value(Self::Astore, bytes::tag([Self::Astore as u8])),
+        ))(s)
     }
 }
 
@@ -3085,10 +3672,13 @@ impl JavaFunctionBody {
 impl<'i, 'pool> NomParse<&'pool ConstantPool, &'i [u8]> for JavaFunctionBody {
     type Output = CrateResult<Self>;
 
-    fn nom_parse(env: Self::Env, mut s: Self::Input) -> IResult<Self::Input, Self::Output> {
+    fn nom_parse(
+        env: &'pool ConstantPool,
+        mut s: Self::Input,
+    ) -> IResult<Self::Input, Self::Output> {
         let mut ret = Self::default();
         loop {
-            match JavaOpCode::nom_parse((ret.len(), env), s) {
+            match dbg!(JavaOpCode::nom_parse((ret.len(), env), s)) {
                 Ok((rest, opcode)) => {
                     if rest == s {
                         return Err(Err::Error(<_ as ParseError<_>>::from_error_kind(
@@ -3168,6 +3758,16 @@ pub enum JavaAttribute {
     LineNumberTable(Vec<LineNumber>),
     /// Debug information about local variables for a `Code` attribute.
     LocalVariableTable(Vec<LocalVariable>),
+    /// Debug information about local variables for a `Code` attribute. Differs from
+    /// [`LocalVariableTable`] only in that the types given are from before type erasure.
+    /// Consequently, variables with types not subject to type erasure will appear only in the
+    /// `LocalVariableTable`.
+    ///
+    /// [`LocalVariableTable`]: #variant.LocalVariableTable
+    LocalVariableTypeTable(Vec<LocalVariableType>),
+    /// An attribute that marks the class, field, or method that it is attached to as an item that
+    /// should not be used, often because its functionality should be achieved in another way.
+    Deprecated,
     /// An attribute that does not fall into any of the other categories.
     GenericAttribute {
         /// The name of the attribute.
@@ -3202,11 +3802,15 @@ impl JavaAttribute {
     const LINE_NUMBER_TABLE_NAME: &'static str = "LineNumberTable";
     /// The name of the LocalVariableTable attribute.
     const LOCAL_VARIABLE_TABLE_NAME: &'static str = "LocalVariableTable";
+    /// The name of the LocalVariableTypeTable attribute.
+    const LOCAL_VARIABLE_TYPE_TABLE_NAME: &'static str = "LocalVariableTypeTable";
+    /// The name of the Deprecated attribute.
+    const DEPRECATED_NAME: &'static str = "Deprecated";
 
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
         let name_idx = read_u16(src, counter)?;
-        match pool.get_utf8(name_idx)? {
+        match dbg!(pool.get_utf8(name_idx)?) {
             name if name == Self::CONSTANT_VALUE_NAME => {
                 match read_u32(src, counter)? {
                     2 => {}
@@ -3254,7 +3858,7 @@ impl JavaAttribute {
                 let max_locals = read_u16(src, counter)?;
                 let code_len = read_u32(src, counter)?;
                 let code = read_bytes(src, code_len.into(), counter)?;
-                let body = JavaFunctionBody::parse(&code, pool)?;
+                let body = dbg!(JavaFunctionBody::parse(&code, pool)?);
                 let exception_handlers = read_exception_handlers(src, pool, counter)?;
                 let attributes = read_attributes(src, pool, counter)?;
                 debug_assert_eq!(*counter - counter_base, value_length);
@@ -3449,8 +4053,34 @@ impl JavaAttribute {
                 debug_assert_eq!(value_length, *counter - counter_base);
                 Ok(Self::LocalVariableTable(table))
             }
-            "LocalVariableTypeTable" => unimplemented!("Attribute::LocalVariableTypeTable"),
-            "Deprecated" => unimplemented!("Attribute::Deprecated"),
+            name if name == Self::LOCAL_VARIABLE_TYPE_TABLE_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     local_variable_type_table_len: u16,
+                //     local_variable_type_table:
+                //         [LocalVariableType; local_variable_type_table_len],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let local_variable_type_table_len = read_u16(src, counter)?;
+                let table = (0..local_variable_type_table_len)
+                    .map(|_| LocalVariableType::read(src, pool, counter))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::LocalVariableTypeTable(table))
+            }
+            name if name == Self::DEPRECATED_NAME => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                debug_assert_eq!(value_length, 0);
+                Ok(Self::Deprecated)
+            }
             "RuntimeVisibleAnnotations" => unimplemented!("Attribute::RuntimeVisibleAnnotations"),
             "RuntimeInvisibleAnnotations" => {
                 unimplemented!("Attribute::RuntimeInvisibleAnnotations")
@@ -3491,6 +4121,8 @@ impl JavaAttribute {
             Self::SourceDebugExtension { .. } => Self::SOURCE_DEBUG_EXTENSION_NAME,
             Self::LineNumberTable(_) => Self::LINE_NUMBER_TABLE_NAME,
             Self::LocalVariableTable(_) => Self::LOCAL_VARIABLE_TABLE_NAME,
+            Self::LocalVariableTypeTable(_) => Self::LOCAL_VARIABLE_TYPE_TABLE_NAME,
+            Self::Deprecated => Self::DEPRECATED_NAME,
             Self::GenericAttribute { name, .. } => name.as_ref(),
         }
     }
@@ -3646,6 +4278,18 @@ impl JavaAttribute {
                     .collect::<CrateResult<Vec<_>>>()?;
                 Ok(RawAttribute::LocalVariableTable { name_idx, table })
             }
+            Self::LocalVariableTypeTable(table) => {
+                let name_idx = pool.add_utf8(Self::LOCAL_VARIABLE_TYPE_TABLE_NAME.to_string())?;
+                let table = table
+                    .into_iter()
+                    .map(|entry| entry.into_raw(pool))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::LocalVariableTypeTable { name_idx, table })
+            }
+            Self::Deprecated => {
+                let name_idx = pool.add_utf8(Self::DEPRECATED_NAME.to_string())?;
+                Ok(RawAttribute::Deprecated { name_idx })
+            }
             Self::GenericAttribute { name, info } => {
                 let name_idx = pool.add_utf8(name)?;
                 Ok(RawAttribute::GenericAttribute { name_idx, info })
@@ -3662,7 +4306,7 @@ pub fn read_attributes(
 ) -> CrateResult<Vec<JavaAttribute>> {
     let num_attributes = read_u16(src, counter)?;
     (0..num_attributes)
-        .map(|_| JavaAttribute::read(src, pool, counter))
+        .map(|_| dbg!(JavaAttribute::read(src, pool, counter)))
         .collect()
 }
 
@@ -3909,6 +4553,60 @@ impl LocalVariable {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LocalVariableType {
+    /// The index into the `Code` attribute of the first instruction where this local variable must
+    /// have a value.
+    start_pc: u16,
+    /// The length of the slice into the `Code` attribute where this local variable must have a
+    /// value.
+    code_length: u16,
+    /// The name of the local variable.
+    name: String,
+    /// The type of the local variable before type erasure. If the local variable is not subject to
+    /// type erasure, it will only appear in the `LocalVariableTable` attribute.
+    r#type: JavaFieldType,
+    /// The index of the local variable in the current frame.
+    index: u16,
+}
+
+impl LocalVariableType {
+    /// Reads a local variable description from `src`.
+    fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
+        let start_pc = read_u16(src, counter)?;
+        let code_length = read_u16(src, counter)?;
+        let name_idx = read_u16(src, counter)?;
+        let type_idx = read_u16(src, counter)?;
+        let index = read_u16(src, counter)?;
+        let name = pool.get_utf8(name_idx)?.to_string();
+        let r#type = pool.get_utf8(type_idx)?.parse()?;
+        Ok(Self {
+            start_pc,
+            code_length,
+            name,
+            r#type,
+            index,
+        })
+    }
+
+    /// Converts a local variable description into a form that can be written without further
+    /// modifying the constant pool.
+    fn into_raw(self, pool: &mut ConstantPool) -> CrateResult<RawLocalVariable> {
+        let start_pc = self.start_pc;
+        let code_length = self.code_length;
+        let name_idx = pool.add_utf8(self.name)?;
+        let type_idx = pool.add_utf8(self.r#type.to_string())?;
+        let index = self.index;
+        Ok(RawLocalVariable {
+            start_pc,
+            code_length,
+            name_idx,
+            type_idx,
+            index,
+        })
+    }
+}
+
 /// A valid Java name. From [JLS7
 /// §3.8](https://docs.oracle.com/javase/specs/jls/se7/html/jls-3.html#jls-3.8), an Identifier is
 /// any sequence of zero or more Unicode alphanumeric characters preceded by a Unicode alphabetic
@@ -3926,7 +4624,7 @@ impl JavaIdentifier {
 
 impl Display for JavaIdentifier {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.0, f)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -4047,6 +4745,12 @@ impl PackageName {
     /// Convert `self` to the form used in Java source files.
     pub fn to_source_form(&self) -> String {
         self.sections().join(".")
+    }
+}
+
+impl From<Vec<JavaIdentifier>> for PackageName {
+    fn from(value: Vec<JavaIdentifier>) -> Self {
+        Self(value)
     }
 }
 
@@ -4246,7 +4950,7 @@ pub fn read_methods(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<Vec<
     let num_methods = eio::read_u16(src)?;
     let mut ret = Vec::with_capacity(num_methods.into());
     for _ in 0..num_methods {
-        ret.push(JavaMethod::read(src, pool)?);
+        ret.push(dbg!(JavaMethod::read(src, pool)?));
     }
     Ok(ret)
 }

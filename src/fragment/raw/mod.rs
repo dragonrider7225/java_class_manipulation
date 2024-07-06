@@ -92,8 +92,22 @@ pub enum RawAttribute {
         /// The debug information.
         table: Vec<RawLocalVariable>,
     },
-    GenericAttribute {
+    /// Debug information about local variables for a `Code` attribute.
+    LocalVariableTypeTable {
+        /// The index of the attribute name "LocalVariableTable" in the constant pool.
         name_idx: u16,
+        /// The debug information.
+        table: Vec<RawLocalVariable>,
+    },
+    /// A flag that the item this attribute is attached to is deprecated and should not be used.
+    Deprecated {
+        /// The index of the attribute name "Deprecated" in the constant pool.
+        name_idx: u16,
+    },
+    GenericAttribute {
+        /// The index of the attribute's name in the constant pool.
+        name_idx: u16,
+        /// The raw bytes of the attribute's data.
         info: Vec<u8>,
     },
 }
@@ -114,12 +128,16 @@ impl RawAttribute {
             | Self::SourceDebugExtension { name_idx, .. }
             | Self::LineNumberTable { name_idx, .. }
             | Self::LocalVariableTable { name_idx, .. }
+            | Self::LocalVariableTypeTable { name_idx, .. }
+            | Self::Deprecated { name_idx }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
 
-    /// The number of bytes that would be written by a successful call to [`write()`] minus the six
-    /// bytes used for `attribute_name_index` and `attribute_length`.
+    /// The number of bytes that would be written by a successful call to [`self.write()`] minus the
+    /// six bytes used for `attribute_name_index` and `attribute_length`.
+    ///
+    /// [`self.write()`]: #method.write
     #[allow(clippy::len_without_is_empty, reason = "This is not a container type")]
     pub fn len(&self) -> usize {
         match self {
@@ -151,7 +169,10 @@ impl RawAttribute {
             Self::SourceFile { .. } => 2,
             Self::SourceDebugExtension { jvm8_len, .. } => usize::try_from(*jvm8_len).unwrap(),
             Self::LineNumberTable { table, .. } => 2 + table.len() * 4,
-            Self::LocalVariableTable { table, .. } => 2 + table.len() * 10,
+            Self::LocalVariableTable { table, .. } | Self::LocalVariableTypeTable { table, .. } => {
+                2 + table.len() * 10
+            }
+            Self::Deprecated { .. } => 0,
             Self::GenericAttribute { info, .. } => info.len(),
         }
     }
@@ -181,13 +202,13 @@ impl RawAttribute {
                 eio::write_u16(sink, attributes.len().try_into()?)?;
                 attributes
                     .into_iter()
-                    .try_for_each(|attr| attr.write(sink))?;
+                    .try_for_each(|attr| attr.write(sink))?
             }
             Self::StackMapTable { entries, .. } => {
                 eio::write_u16(sink, u16::try_from(entries.len())?)?;
                 entries
                     .into_iter()
-                    .try_for_each(|frame| frame.write(sink))?;
+                    .try_for_each(|frame| frame.write(sink))?
             }
             Self::Exceptions {
                 exception_indices, ..
@@ -195,13 +216,13 @@ impl RawAttribute {
                 eio::write_u16(sink, u16::try_from(exception_indices.len())?)?;
                 exception_indices
                     .into_iter()
-                    .try_for_each(|index| eio::write_u16(sink, index))?;
+                    .try_for_each(|index| eio::write_u16(sink, index))?
             }
             Self::InnerClasses { classes_info, .. } => {
                 eio::write_u16(sink, u16::try_from(classes_info.len())?)?;
                 classes_info
                     .into_iter()
-                    .try_for_each(|info| info.write(sink))?;
+                    .try_for_each(|info| info.write(sink))?
             }
             Self::EnclosingMethod {
                 class_idx,
@@ -209,7 +230,7 @@ impl RawAttribute {
                 ..
             } => {
                 eio::write_u16(sink, class_idx)?;
-                eio::write_u16(sink, method_idx)?;
+                eio::write_u16(sink, method_idx)?
             }
             Self::Synthetic(_) => {}
             Self::Signature { signature_idx, .. } => eio::write_u16(sink, signature_idx)?,
@@ -224,10 +245,11 @@ impl RawAttribute {
                     eio::write_u16(sink, entry.line_number)
                 })?
             }
-            Self::LocalVariableTable { table, .. } => {
+            Self::LocalVariableTable { table, .. } | Self::LocalVariableTypeTable { table, .. } => {
                 eio::write_u16(sink, u16::try_from(table.len())?)?;
                 table.into_iter().try_for_each(|entry| entry.write(sink))?
             }
+            Self::Deprecated { .. } => {}
             Self::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
         }
         Ok(())
@@ -328,7 +350,7 @@ impl RawInnerClassInfo {
     }
 }
 
-/// A local variable description in a `LocalVariableTable` attribute.
+/// A local variable description in a `LocalVariableTable` or `LocalVariableTypeTable` attribute.
 #[derive(Clone, Copy, Debug)]
 pub struct RawLocalVariable {
     /// The index into the `Code` attribute of the first instruction where this local variable must

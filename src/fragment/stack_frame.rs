@@ -16,7 +16,9 @@ pub trait Frame {
 /// A writable stack map frame.
 #[allow(clippy::len_without_is_empty)]
 pub trait WritableFrame: Frame {
-    /// The number of bytes that will be written by a successful call to [`write()`].
+    /// The number of bytes that will be written by a successful call to [`self.write()`].
+    ///
+    /// [`self.write()`]: #tymethod.write
     fn len(&self) -> usize;
 
     /// Writes the frame to `sink`.
@@ -847,7 +849,9 @@ pub enum RawVerificationTypeInfo {
 }
 
 impl RawVerificationTypeInfo {
-    /// The number of bytes that will be written by [`write()`].
+    /// The number of bytes that will be written by [`self.write()`].
+    ///
+    /// [`self.write()`]: #method.write
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {

@@ -33,58 +33,30 @@ impl<E: Debug> From<Err<E>> for NomFlatError {
 
 impl Error for NomFlatError {}
 
-macro_rules! just {
-    ($v:expr) => {
-        |bytes| Ok((bytes, $v))
-    };
-}
-
-/// Make `just` an item that can be imported in other modules in the crate
-pub(crate) use just;
-
-pub fn unwrap<E, F, I, O>(parser: F) -> impl Parser<I, O, E>
-where
-    E: ParseError<I>,
-    F: Parser<I, Option<O>, E>,
-    I: Clone,
-{
-    comb::map_opt(parser, |x| x)
-}
-
-pub fn sane_cond<E, F, I, O>(b: bool, parser: F) -> impl Parser<I, O, E>
-where
-    E: ParseError<I>,
-    F: Parser<I, O, E>,
-    I: Clone,
-{
-    unwrap(comb::cond(b, parser))
-}
-
 pub trait NomParse<Env, Input>: Sized {
-    type Env = Env;
     type Input = Input;
-    type Output;
+    type Output = Self;
 
-    fn nom_parse(env: Env, s: Input) -> IResult<Input, Self::Output>;
+    fn nom_parse(env: Env, s: Self::Input) -> IResult<Self::Input, Self::Output>;
 
     /// Like `Self::nom_parse`, but fails if `Self::nom_parse` does not consume its entire input.
-    fn nom_parse_full(env: Env, s: Input) -> Result<Self::Output, NomBaseErr<Input>>
+    fn nom_parse_full(env: Env, s: Self::Input) -> Result<Self::Output, NomBaseErr<Self::Input>>
     where
         Env: Copy,
-        Input: InputLength,
+        Self::Input: InputLength,
     {
         Ok(comb::all_consuming(move |s| Self::nom_parse(env, s))(s)?.1)
     }
 }
 
 pub trait NomParseContextFree<Input>: NomParse<(), Input> {
-    fn nom_parse_cf(s: Input) -> IResult<Input, Self::Output> {
+    fn nom_parse_cf(s: Self::Input) -> IResult<Self::Input, Self::Output> {
         Self::nom_parse((), s)
     }
 
-    fn nom_parse_full_cf(s: Input) -> Result<Self::Output, NomBaseErr<Input>>
+    fn nom_parse_full_cf(s: Self::Input) -> Result<Self::Output, NomBaseErr<Self::Input>>
     where
-        Input: InputLength,
+        Self::Input: InputLength,
     {
         Self::nom_parse_full((), s)
     }

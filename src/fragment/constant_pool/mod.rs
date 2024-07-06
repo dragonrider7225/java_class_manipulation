@@ -503,13 +503,13 @@ pub enum CPEntryType {
     /// and a reference to an entry of type NameAndType which refers to a method.
     InterfaceMethodref = 0x0B,
     /// The entry is a pair of a reference to an entry of type Utf8 which represents either
-    /// "<init>" or a valid Java identifier and a reference to an entry of type Utf8 which
+    /// `"<init>"` or a valid Java identifier and a reference to an entry of type Utf8 which
     /// represents the type of the identifier.
     NameAndType = 0x0C,
     /// The entry describes a way of interacting with a `Fieldref`, `Methodref`, or
-    /// `InterfaceMethodref`. The entry is a pair of a number [1,9] and a reference to a *ref which
-    /// must be a `Fieldref` if the number is [1,4], a `Methodref` if the number is [5,8], and an
-    /// `InterfaceMethodref` if the number is 9.
+    /// `InterfaceMethodref`. The entry is a pair of a number in the range `1..=9` and a reference
+    /// to a *ref which must be a `Fieldref` if the number is in the range `1..=4`, a `Methodref` if
+    /// the number is in the range `5..=8`, and an `InterfaceMethodref` if the number is `9`.
     MethodHandle = 0x0F,
     /// The entry is a reference to an entry of type `Utf8` which represents a method type.
     MethodType = 0x10,
