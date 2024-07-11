@@ -21,9 +21,15 @@ use std::{
 
 use crate::{
     parsers::{impl_from_str_for_nom_parse_cf, NomParse, NomParseContextFree},
-    types::{field::JavaFieldType, JavaType, PrimitiveValueType, QualifiedClassName},
+    types::{
+        field::{ClassType, JavaFieldType},
+        JavaType, PrimitiveValueType, QualifiedClassName,
+    },
     AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };
+
+pub mod annotation;
+use annotation::Annotation;
 
 pub mod constant_pool;
 pub use constant_pool::ConstantPool;
@@ -3775,6 +3781,9 @@ pub enum JavaAttribute {
     /// An attribute that marks the class, field, or method that it is attached to as an item that
     /// should not be used, often because its functionality should be achieved in another way.
     Deprecated,
+    /// The annotations on the item this attribute is attached to that should be visible to the
+    /// program through Java's reflection API.
+    RuntimeVisibleAnnotations(Vec<Annotation>),
     /// An attribute that does not fall into any of the other categories.
     GenericAttribute {
         /// The name of the attribute.
@@ -3813,6 +3822,8 @@ impl JavaAttribute {
     const LOCAL_VARIABLE_TYPE_TABLE_NAME: &'static str = "LocalVariableTypeTable";
     /// The name of the Deprecated attribute.
     const DEPRECATED_NAME: &'static str = "Deprecated";
+    /// The name of the RuntimeVisibleAnnotations attribute.
+    const RUNTIME_VISIBLE_ANNOTATIONS: &'static str = "RuntimeVisibleAnnotations";
 
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
@@ -4088,7 +4099,23 @@ impl JavaAttribute {
                 debug_assert_eq!(value_length, 0);
                 Ok(Self::Deprecated)
             }
-            "RuntimeVisibleAnnotations" => unimplemented!("Attribute::RuntimeVisibleAnnotations"),
+            name if name == Self::RUNTIME_VISIBLE_ANNOTATIONS => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     num_annotations: u16,
+                //     annotations: [Annotation; num_annotations],
+                // }
+                let value_length = usize::try_from(read_u32(src, counter)?)?;
+                let counter_base = *counter;
+                let num_annotations = read_u16(src, counter)?;
+                let annotations = (0..num_annotations)
+                    .map(|_| Annotation::read(src, pool, counter))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::RuntimeVisibleAnnotations(annotations))
+            }
             "RuntimeInvisibleAnnotations" => {
                 unimplemented!("Attribute::RuntimeInvisibleAnnotations")
             }
@@ -4130,6 +4157,7 @@ impl JavaAttribute {
             Self::LocalVariableTable(_) => Self::LOCAL_VARIABLE_TABLE_NAME,
             Self::LocalVariableTypeTable(_) => Self::LOCAL_VARIABLE_TYPE_TABLE_NAME,
             Self::Deprecated => Self::DEPRECATED_NAME,
+            Self::RuntimeVisibleAnnotations(_) => Self::RUNTIME_VISIBLE_ANNOTATIONS,
             Self::GenericAttribute { name, .. } => name.as_ref(),
         }
     }
@@ -4296,6 +4324,17 @@ impl JavaAttribute {
             Self::Deprecated => {
                 let name_idx = pool.add_utf8(Self::DEPRECATED_NAME.to_string())?;
                 Ok(RawAttribute::Deprecated { name_idx })
+            }
+            Self::RuntimeVisibleAnnotations(annotations) => {
+                let name_idx = pool.add_utf8(Self::RUNTIME_VISIBLE_ANNOTATIONS.to_string())?;
+                let annotations = annotations
+                    .into_iter()
+                    .map(|entry| entry.into_raw(pool))
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::RuntimeVisibleAnnotations {
+                    name_idx,
+                    annotations,
+                })
             }
             Self::GenericAttribute { name, info } => {
                 let name_idx = pool.add_utf8(name)?;
