@@ -62,12 +62,22 @@ pub struct ClassType {
 
 impl Display for ClassType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "L")?;
-        match &self.container {
-            Either::Left(package) => write!(f, "{}/", package.to_internal_form())?,
-            Either::Right(parent) => write!(f, "{parent}.")?,
+        /// The recursive part of converting a `ClassType` to a `String` so that the `L{};`
+        /// delimiter doesn't get included multiple times.
+        fn go(this: &ClassType, f: &mut Formatter<'_>) -> fmt::Result {
+            match &this.container {
+                Either::Left(package) => write!(f, "{}/", package.to_internal_form())?,
+                Either::Right(parent) => {
+                    go(parent, f)?;
+                    write!(f, ".")?
+                }
+            }
+            write!(f, "{}", this.name)
         }
-        write!(f, "{};", self.name)
+
+        write!(f, "L")?;
+        go(self, f)?;
+        write!(f, ";")
     }
 }
 
