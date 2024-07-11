@@ -15,7 +15,7 @@ use std::{
 
 use crate::{
     parsers::NomFlatError,
-    types::{JavaType, QualifiedClassName},
+    types::{field::JavaFieldType, JavaType, QualifiedClassName},
     ClassParseError, CrateResult, FieldRef, MethodRef,
 };
 
@@ -606,6 +606,103 @@ impl ConstantPool {
         Ok(&self.pool[idx as usize - 1])
     }
 
+    /// Get the boolean entry in the constant pool at index `idx`.
+    pub fn get_bool(&self, idx: u16) -> CPAccessResult<bool> {
+        Ok(self.get_int(idx)? != 0)
+    }
+
+    /// Get the 8-bit signed integer entry in the constant pool at index `idx`.
+    pub fn get_byte(&self, idx: u16) -> CPAccessResult<i8> {
+        let entry = self.get_int(idx)?;
+        entry
+            .try_into()
+            .map_err(|_| CPAccessError::FailedTypeConversion {
+                request: idx,
+                source: CPEntryType::Integer,
+                cause: None,
+            })
+    }
+
+    /// Get the character entry in the constant pool at index `idx`.
+    pub fn get_char(&self, idx: u16) -> CPAccessResult<char> {
+        let value = self.get_int(idx)?;
+        let bytes = value.to_be_bytes();
+        let shorts = [
+            u16::from_be_bytes([bytes[0], bytes[1]]),
+            u16::from_be_bytes([bytes[2], bytes[3]]),
+        ];
+        let s = if bytes[..2] == [0, 0] {
+            String::from_utf16_lossy(&shorts[1..])
+        } else {
+            String::from_utf16_lossy(&shorts)
+        };
+        s.chars().next().ok_or(CPAccessError::FailedTypeConversion {
+            request: idx,
+            source: CPEntryType::Integer,
+            cause: None,
+        })
+    }
+
+    /// Get the 16-bit signed integer entry in the constant pool at index `idx`.
+    pub fn get_short(&self, idx: u16) -> CPAccessResult<i16> {
+        let entry = self.get_int(idx)?;
+        entry
+            .try_into()
+            .map_err(|_| CPAccessError::FailedTypeConversion {
+                request: idx,
+                source: CPEntryType::Integer,
+                cause: None,
+            })
+    }
+
+    /// Get the 32-bit signed integer entry in the constant pool at index `idx`.
+    pub fn get_int(&self, idx: u16) -> CPAccessResult<i32> {
+        match self.get(idx)? {
+            CPEntry::Integer(i) => Ok(*i),
+            e => Err(CPAccessError::BadEntryType {
+                request: idx,
+                expected: CPEntryType::Integer,
+                actual: e.r#type(),
+            }),
+        }
+    }
+
+    /// Get the 64-bit signed integer entry in the constant pool at index `idx`.
+    pub fn get_long(&self, idx: u16) -> CPAccessResult<i64> {
+        match self.get(idx)? {
+            CPEntry::Long(l) => Ok(*l),
+            e => Err(CPAccessError::BadEntryType {
+                request: idx,
+                expected: CPEntryType::Long,
+                actual: e.r#type(),
+            }),
+        }
+    }
+
+    /// Get the 32-bit floating-point entry in the constant pool at index `idx`.
+    pub fn get_float(&self, idx: u16) -> CPAccessResult<f32> {
+        match self.get(idx)? {
+            CPEntry::Float(f) => Ok(*f),
+            e => Err(CPAccessError::BadEntryType {
+                request: idx,
+                expected: CPEntryType::Float,
+                actual: e.r#type(),
+            }),
+        }
+    }
+
+    /// Get the 64-bit floating-point entry in the constant pool at index `idx`.
+    pub fn get_double(&self, idx: u16) -> CPAccessResult<f64> {
+        match self.get(idx)? {
+            CPEntry::Double(d) => Ok(*d),
+            e => Err(CPAccessError::BadEntryType {
+                request: idx,
+                expected: CPEntryType::Double,
+                actual: e.r#type(),
+            }),
+        }
+    }
+
     /// Get a reference to the string at index `idx`.
     pub fn get_utf8(&self, idx: u16) -> CPAccessResult<&str> {
         match self.get(idx)? {
@@ -616,6 +713,12 @@ impl ConstantPool {
                 actual: entry.r#type(),
             }),
         }
+    }
+
+    /// Get the [`JavaFieldType`] at index `idx`.
+    pub fn get_field_type(&self, idx: u16) -> CPAccessResult<JavaFieldType> {
+        let entry = self.get_utf8(idx)?;
+        entry.parse::<JavaFieldType>().map_err(CPAccessError::from)
     }
 
     /// Get a reference to the string literal at index `idx`.
@@ -779,11 +882,62 @@ impl ConstantPool {
         }
     }
 
-    /// Ensure that `s` is present in the constant pool. See [`add`].
+    /// Ensure that `value` is present in the constant pool. See [`add`].
     ///
     /// [`add`]: #method.add
-    pub fn add_utf8(&mut self, s: String) -> CPAccessResult<u16> {
-        self.add(CPEntry::Utf8(s))
+    pub fn add_bool(&mut self, value: bool) -> CPAccessResult<u16> {
+        self.add_int(if value { 1 } else { 0 })
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_byte(&mut self, value: i8) -> CPAccessResult<u16> {
+        self.add_int(value.into())
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_char(&mut self, value: char) -> CPAccessResult<u16> {
+        let mut shorts = [0; 2];
+        let encoded_shorts = value.encode_utf16(&mut shorts);
+        let int_value = if encoded_shorts.len() == 2 {
+            let msb = encoded_shorts[0].to_be_bytes();
+            let lsb = encoded_shorts[1].to_be_bytes();
+            i32::from_be_bytes([msb[0], msb[1], lsb[0], lsb[1]])
+        } else {
+            i32::from(encoded_shorts[0] as i16)
+        };
+        self.add_int(int_value)
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_short(&mut self, value: i16) -> CPAccessResult<u16> {
+        self.add_int(value.into())
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_int(&mut self, value: i32) -> CPAccessResult<u16> {
+        self.add(CPEntry::Integer(value))
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_long(&mut self, value: i64) -> CPAccessResult<u16> {
+        self.add(CPEntry::Long(value))
+    }
+
+    /// Ensure that `value` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_float(&mut self, value: f32) -> CPAccessResult<u16> {
+        self.add(CPEntry::Float(value))
     }
 
     /// Ensure that `value` is present in the constant pool. See [`add`].
@@ -793,11 +947,19 @@ impl ConstantPool {
         self.add(CPEntry::Double(value))
     }
 
-    /// Ensure that `value` is present in the constant pool. See [`add`].
+    /// Ensure that `s` is present in the constant pool. See [`add`].
     ///
     /// [`add`]: #method.add
-    pub fn add_long(&mut self, value: i64) -> CPAccessResult<u16> {
-        self.add(CPEntry::Long(value))
+    pub fn add_utf8(&mut self, s: String) -> CPAccessResult<u16> {
+        self.add(CPEntry::Utf8(s))
+    }
+
+    /// Ensure that `t` is present in the constant pool. See [`add`].
+    ///
+    /// [`add`]: #method.add
+    pub fn add_field_type(&mut self, t: JavaFieldType) -> CPAccessResult<u16> {
+        let value = format!("{t}");
+        self.add_utf8(value)
     }
 
     /// Ensure that `s` is present in the constant pool as a string literal. See [`add`].
