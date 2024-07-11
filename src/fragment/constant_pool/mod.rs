@@ -530,10 +530,12 @@ impl Display for CPEntryType {
 /// The constant pool of some Java class object. All indexing operations are 1-based.
 #[derive(Debug, Default)]
 pub struct ConstantPool {
+    /// The actual constant pool.
     pool: Vec<CPEntry>,
 }
 
 impl ConstantPool {
+    /// The maximum number of entries in the constant pool.
     const MAX_CAPACITY: usize = 0xFFFE;
 
     /// Create an empty constant pool.

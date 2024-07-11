@@ -62,6 +62,9 @@ pub struct ExceptionHandler {
 }
 
 impl ExceptionHandler {
+    /// Read a prefix of the bytes from `src` as an `ExceptionHandler`. The value of `*counter` is
+    /// guaranteed to be incremented by the number of bytes read from `src`, regardless of whether
+    /// the return value is `Ok` or `Err`.
     fn read(
         src: &mut dyn Read,
         pool: &ConstantPool,
@@ -84,6 +87,8 @@ impl ExceptionHandler {
         })
     }
 
+    /// Convert this value into a form that can be written to a class file without further
+    /// modifying the constant pool.
     fn into_raw(self, pool: &mut ConstantPool) -> CPAccessResult<RawExceptionHandler> {
         let start_pc = self.start_pc;
         let end_pc = self.end_pc;
@@ -101,7 +106,9 @@ impl ExceptionHandler {
     }
 }
 
-/// Read an exception handler, resolving all references into `pool`.
+/// Read several exception handlers, resolving all references into `pool`. The value of `*counter`
+/// is guaranteed to be incremented by the number of bytes read from `src` regardless of whether
+/// the return value is `Ok` or `Err`.
 pub fn read_exception_handlers(
     src: &mut dyn Read,
     pool: &ConstantPool,
@@ -5116,26 +5123,30 @@ impl ClassFileVersion {
     }
 }
 
-fn read_u8(source: &mut dyn Read, counter: &mut usize) -> io::Result<u8> {
-    let res = eio::read_u8(source)?;
+/// Read a byte from `src` and increment `*counter` by 1.
+fn read_u8(src: &mut dyn Read, counter: &mut usize) -> io::Result<u8> {
+    let res = eio::read_u8(src)?;
     *counter += 1;
     Ok(res)
 }
 
-fn read_u16(source: &mut dyn Read, counter: &mut usize) -> io::Result<u16> {
-    let res = eio::read_u16(source)?;
+/// Read two bytes from `src` as a big-endian `u16` and increment `*counter` by 2.
+fn read_u16(src: &mut dyn Read, counter: &mut usize) -> io::Result<u16> {
+    let res = eio::read_u16(src)?;
     *counter += 2;
     Ok(res)
 }
 
-fn read_u32(source: &mut dyn Read, counter: &mut usize) -> io::Result<u32> {
-    let res = eio::read_u32(source)?;
+/// Read four bytes from `src` as a big-endian `u32` and increment `*counter` by 4.
+fn read_u32(src: &mut dyn Read, counter: &mut usize) -> io::Result<u32> {
+    let res = eio::read_u32(src)?;
     *counter += 4;
     Ok(res)
 }
 
-fn read_bytes(source: &mut dyn Read, length: u64, counter: &mut usize) -> io::Result<Vec<u8>> {
-    let res = eio::read_bytes(source, length)?;
+/// Read `length` bytes from `src` and increment `*counter` by the number of bytes read.
+fn read_bytes(src: &mut dyn Read, length: u64, counter: &mut usize) -> io::Result<Vec<u8>> {
+    let res = eio::read_bytes(src, length)?;
     *counter += res.len();
     Ok(res)
 }
