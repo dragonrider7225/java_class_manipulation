@@ -976,7 +976,7 @@ impl ConstantPool {
     ///
     /// [`add`]: #method.add
     pub fn add_class_name(&mut self, name: QualifiedClassName) -> CPAccessResult<u16> {
-        let utf8_idx = self.add_utf8(name.to_internal_form())?;
+        let utf8_idx = self.add_utf8(name.to_internal_form(false))?;
         self.add(CPEntry::Class(utf8_idx))
     }
 

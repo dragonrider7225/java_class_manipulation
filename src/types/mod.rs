@@ -56,20 +56,22 @@ impl QualifiedClassName {
     }
 
     /// Convert the type name to the form used in Java class files.
-    pub(crate) fn to_internal_form(&self) -> String {
+    pub(crate) fn to_internal_form(&self, delimit_class_name: bool) -> String {
         match self {
             QualifiedClassName::ClassFile(package, ucn) => {
+                let prefix = if delimit_class_name { "L" } else { "" };
+                let suffix = if delimit_class_name { ";" } else { "" };
                 if package.is_default_package() {
-                    format!("{}", ucn)
+                    format!("{prefix}{ucn}{suffix}")
                 } else {
-                    format!("{}/{}", package.to_internal_form(), ucn)
+                    format!("{prefix}{}/{ucn}{suffix}", package.to_internal_form())
                 }
             }
             QualifiedClassName::Array(Either::Left(primitive)) => {
                 format!("[{}", primitive.to_internal_form())
             }
             QualifiedClassName::Array(Either::Right(box qcn)) => {
-                format!("[{}", qcn.to_internal_form())
+                format!("[{}", qcn.to_internal_form(delimit_class_name))
             }
         }
     }
@@ -369,10 +371,7 @@ impl JavaType {
     pub(crate) fn to_internal_form(&self) -> String {
         match self {
             Self::Primitive(primitive) => primitive.to_internal_form(),
-            Self::Class(qcn @ QualifiedClassName::ClassFile(..)) => {
-                format!("L{};", qcn.to_internal_form())
-            }
-            Self::Class(qcn) => qcn.to_internal_form(),
+            Self::Class(qcn) => qcn.to_internal_form(true),
             Self::Method(jmt) => jmt.to_internal_form(),
         }
     }
