@@ -3833,15 +3833,17 @@ impl JavaAttribute {
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
         let name_idx = read_u16(src, counter)?;
+        let value_length = usize::try_from(read_u32(src, counter)?)?;
         match pool.get_utf8(name_idx)? {
             name if name == Self::CONSTANT_VALUE_NAME => {
-                match read_u32(src, counter)? {
+                match value_length {
                     2 => {}
                     len => {
+                        let len = len as _;
                         return Err(ClassParseError::InvalidAttributeLength {
                             name: name.to_string(),
                             len,
-                        })?
+                        })?;
                     }
                 }
                 let attr = match pool.get(read_u16(src, counter)?)? {
@@ -3875,7 +3877,6 @@ impl JavaAttribute {
                 //     // Must include "StackMapTable" attribute.
                 //     attributes: [JavaAttribute; attributes_count],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let max_stack = read_u16(src, counter)?;
                 let max_locals = read_u16(src, counter)?;
@@ -3902,7 +3903,6 @@ impl JavaAttribute {
                 //     entry_count: u16,
                 //     entries: [StackMapFrame; entry_count],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let entry_count = read_u16(src, counter)?;
                 let entries = (0..entry_count)
@@ -3919,7 +3919,6 @@ impl JavaAttribute {
                 //     number_of_exceptions: u16,
                 //     exception_indices: [u16; number_of_exceptions],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let number_of_exceptions = read_u16(src, counter)?;
                 let exception_types = (0..number_of_exceptions)
@@ -3947,7 +3946,6 @@ impl JavaAttribute {
                 //         number_of_classes
                 //     ],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let num_classes = read_u16(src, counter)?;
                 let classes_info = (0..num_classes)
@@ -3964,7 +3962,6 @@ impl JavaAttribute {
                 //     class_index: u16,
                 //     method_index: u16,
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let class_idx = read_u16(src, counter)?;
                 let method_idx = read_u16(src, counter)?;
@@ -3983,11 +3980,10 @@ impl JavaAttribute {
                 //     name: u16, // Already read
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
                 // }
-                let value_length = read_u32(src, counter)?;
                 if value_length != 0 {
                     return Err(ClassParseError::InvalidAttributeLength {
                         name: Self::SYNTHETIC_NAME.into(),
-                        len: value_length,
+                        len: value_length as _,
                     }
                     .into());
                 }
@@ -4000,7 +3996,6 @@ impl JavaAttribute {
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
                 //     signature_idx: u16,
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let signature_idx = read_u16(src, counter)?;
                 debug_assert_eq!(value_length, *counter - counter_base);
@@ -4013,7 +4008,6 @@ impl JavaAttribute {
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
                 //     source_file_idx: u16,
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let source_file_idx = read_u16(src, counter)?;
                 debug_assert_eq!(value_length, *counter - counter_base);
@@ -4028,7 +4022,6 @@ impl JavaAttribute {
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
                 //     debug_extension: jvm8,
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let debug_extension = {
                     let mut bytes = Vec::with_capacity(value_length);
@@ -4050,7 +4043,6 @@ impl JavaAttribute {
                 //     num_line_number_table_entries: u16,
                 //     line_number_table: [LineNumber; num_line_number_table_entries],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let num_line_number_table_entries = read_u16(src, counter)?;
                 let entries = (0..num_line_number_table_entries)
@@ -4067,7 +4059,6 @@ impl JavaAttribute {
                 //     local_variable_table_len: u16,
                 //     local_variable_table: [LocalVariable; local_variable_table_len],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let local_variable_table_len = read_u16(src, counter)?;
                 let table = (0..local_variable_table_len)
@@ -4085,7 +4076,6 @@ impl JavaAttribute {
                 //     local_variable_type_table:
                 //         [LocalVariableType; local_variable_type_table_len],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let local_variable_type_table_len = read_u16(src, counter)?;
                 let table = (0..local_variable_type_table_len)
@@ -4100,8 +4090,13 @@ impl JavaAttribute {
                 //     name: u16, // Already read
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
-                debug_assert_eq!(value_length, 0);
+                if value_length != 0 {
+                    return Err(ClassParseError::InvalidAttributeLength {
+                        name: Self::DEPRECATED_NAME.into(),
+                        len: value_length as _,
+                    }
+                    .into());
+                }
                 Ok(Self::Deprecated)
             }
             name if name == Self::RUNTIME_VISIBLE_ANNOTATIONS => {
@@ -4112,7 +4107,6 @@ impl JavaAttribute {
                 //     num_annotations: u16,
                 //     annotations: [Annotation; num_annotations],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let num_annotations = read_u16(src, counter)?;
                 let annotations = (0..num_annotations)
@@ -4129,7 +4123,6 @@ impl JavaAttribute {
                 //     num_annotations: u16,
                 //     annotations: [Annotation; num_annotations],
                 // }
-                let value_length = usize::try_from(read_u32(src, counter)?)?;
                 let counter_base = *counter;
                 let num_annotations = read_u16(src, counter)?;
                 let annotations = (0..num_annotations)
@@ -4148,8 +4141,7 @@ impl JavaAttribute {
             "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
             name => {
                 let name = name.to_string();
-                let info_length = eio::read_u32(src)?.into();
-                let info = eio::read_bytes(src, info_length)?;
+                let info = read_bytes(src, u64::try_from(value_length)?, counter)?;
                 Ok(Self::GenericAttribute { name, info })
             }
         }
