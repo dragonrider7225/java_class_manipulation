@@ -514,7 +514,8 @@ pub trait AccessFlagged {
     ///     public void setData(Integer data) {
     ///         super.setData(data + 1);
     ///     }
-    /// }```
+    /// }
+    /// ```
     ///
     /// `MyNode.setData(Object)` is generated as a delegate to `MyNode.setData(Integer)` so that
     /// calling setData on a MyNode object with a non-Integer argument will produce an exception
