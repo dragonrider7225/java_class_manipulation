@@ -5209,6 +5209,7 @@ fn read_u32(src: &mut dyn Read, counter: &mut usize) -> io::Result<u32> {
 /// Read `length` bytes from `src` and increment `*counter` by the number of bytes read.
 fn read_bytes(src: &mut dyn Read, length: u64, counter: &mut usize) -> io::Result<Vec<u8>> {
     let res = eio::read_bytes(src, length)?;
+    debug_assert_eq!(u64::try_from(res.len()).unwrap(), length);
     *counter += res.len();
     Ok(res)
 }
