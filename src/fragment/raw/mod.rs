@@ -262,7 +262,11 @@ impl RawAttribute {
             Self::SourceFile {
                 source_file_idx, ..
             } => eio::write_u16(sink, source_file_idx)?,
-            Self::SourceDebugExtension { value, .. } => crate::write_jvm8(sink, &value)?,
+            Self::SourceDebugExtension { value, .. } => {
+                let mut bytes = vec![];
+                crate::write_jvm8(&mut bytes, &value)?;
+                super::write_bytes(sink, &mut bytes[2..])?
+            }
             Self::LineNumberTable { table, .. } => {
                 eio::write_u16(sink, u16::try_from(table.len())?)?;
                 table.into_iter().try_for_each(|entry| {

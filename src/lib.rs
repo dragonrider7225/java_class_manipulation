@@ -341,25 +341,21 @@ fn convert_jvm8_to_string(bytes: &[u8]) -> Result<String, ClassParseError> {
     Ok(jvm8::parse_jvm8(bytes)?.1)
 }
 
-/// Convert a string encoded in UTF-8 to JVM-8 and write it to `sink`.
+/// Convert a string encoded in UTF-8 to JVM-8 and write it to `sink`, including a `u16` prefix
+/// denoting the length in bytes of the JVM-8-encoded string.
 fn write_jvm8(sink: &mut dyn Write, s: &str) -> io::Result<()> {
+    let mut bytes = vec![];
     for c in s.chars() {
         match c.into() {
-            0u32 => eio::write_u16(sink, 0xC080)?,
-            0x01..=0x7F => eio::write_u8(sink, c as u8)?,
-            0x80..=0x7FF => {
-                // At least 8 bits but less than 12.
+            0u32 => eio::write_u16(&mut bytes, 0xC080)?,
+            0x01..=0x7F => eio::write_u8(&mut bytes, c as u8)?,
+            0x80..=0xFFFF => {
+                // At least 8 bits but less than 17.
                 // 0x110ccccc 0x10cccccc
-                let mut buf = [0; 2];
-                c.encode_utf8(&mut buf);
-                eio::write_byte_slice(sink, &buf[..])?
-            }
-            0x800..=0xFFFF => {
-                // At least 12 bits but less than 17.
+                // or
                 // 0x1110cccc 0x10cccccc 0x10cccccc
                 let mut buf = [0; 3];
-                c.encode_utf8(&mut buf);
-                eio::write_byte_slice(sink, &buf[..])?
+                eio::write_byte_slice(&mut bytes, c.encode_utf8(&mut buf).as_bytes())?
             }
             0x1_0000..=0x10_FFFF => {
                 // At least 17 bits but less than 22.
@@ -375,12 +371,16 @@ fn write_jvm8(sink: &mut dyn Write, s: &str) -> io::Result<()> {
                 let bits = bits >> 6;
                 buf[1] = 0xA0 | (bits - 1) as u8;
                 buf[0] = 0xED;
-                eio::write_byte_slice(sink, &buf[..])?
+                eio::write_byte_slice(&mut bytes, &buf[..])?
             }
             _ => break,
         }
     }
-    Ok(())
+    eio::write_u16(
+        sink,
+        u16::try_from(bytes.len()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
+    )?;
+    eio::write_byte_slice(sink, &bytes)
 }
 
 /// A symbolic reference to a field in some Java class.
