@@ -66,6 +66,7 @@ impl Display for ClassType {
         /// delimiter doesn't get included multiple times.
         fn go(this: &ClassType, f: &mut Formatter<'_>) -> fmt::Result {
             match &this.container {
+                Either::Left(package) if package.is_default_package() => {}
                 Either::Left(package) => write!(f, "{}/", package.to_internal_form())?,
                 Either::Right(parent) => {
                     go(parent, f)?;
