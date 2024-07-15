@@ -78,8 +78,7 @@ fn main() -> io::Result<()> {
         .create(true)
         .truncate(true)
         .open(config.out_file)?;
-    #[cfg(debug_assertions)]
-    dbg!(&class);
+    // TODO: Transform the class here
     class
         .write(&mut fout)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
