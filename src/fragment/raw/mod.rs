@@ -114,6 +114,13 @@ pub enum RawAttribute {
         /// The annotations.
         annotations: Vec<RawAnnotation>,
     },
+    /// The annotations on an item that are not visible to the program through the reflection API.
+    RuntimeInvisibleAnnotations {
+        /// The index of the attribute name "RuntimeInvisibleAnnotations" in the constant pool.
+        name_idx: u16,
+        /// The annotations.
+        annotations: Vec<RawAnnotation>,
+    },
     GenericAttribute {
         /// The index of the attribute's name in the constant pool.
         name_idx: u16,
@@ -141,6 +148,7 @@ impl RawAttribute {
             | Self::LocalVariableTypeTable { name_idx, .. }
             | Self::Deprecated { name_idx }
             | Self::RuntimeVisibleAnnotations { name_idx, .. }
+            | Self::RuntimeInvisibleAnnotations { name_idx, .. }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
@@ -185,6 +193,9 @@ impl RawAttribute {
             }
             Self::Deprecated { .. } => 0,
             Self::RuntimeVisibleAnnotations { annotations, .. } => {
+                2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
+            }
+            Self::RuntimeInvisibleAnnotations { annotations, .. } => {
                 2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
             }
             Self::GenericAttribute { info, .. } => info.len(),
@@ -265,6 +276,12 @@ impl RawAttribute {
             }
             Self::Deprecated { .. } => {}
             Self::RuntimeVisibleAnnotations { annotations, .. } => {
+                eio::write_u16(sink, u16::try_from(annotations.len())?)?;
+                annotations
+                    .into_iter()
+                    .try_for_each(|annotation| annotation.write(sink))?
+            }
+            Self::RuntimeInvisibleAnnotations { annotations, .. } => {
                 eio::write_u16(sink, u16::try_from(annotations.len())?)?;
                 annotations
                     .into_iter()
