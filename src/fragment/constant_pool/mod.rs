@@ -980,12 +980,12 @@ impl ConstantPool {
         self.add(CPEntry::Class(utf8_idx))
     }
 
-    /// Ensure that `type` is present in the constant pool. See [`add`].
+    /// Ensure that the string representation of `type` is present in the constant pool. See
+    /// [`add`].
     ///
     /// [`add`]: #method.add
     pub fn add_type(&mut self, r#type: JavaType) -> CPAccessResult<u16> {
-        let utf8_idx = self.add_utf8(r#type.to_internal_form())?;
-        self.add(CPEntry::Class(utf8_idx))
+        self.add_utf8(r#type.to_internal_form())
     }
 
     /// Ensure that `(name, type)` is present in the constant pool. See [`add`].
