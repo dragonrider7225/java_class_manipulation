@@ -173,7 +173,11 @@ impl RawAttribute {
                     + 2
                     + 8 * exception_handlers.len()
                     + 2
-                    + attributes.iter().map(RawAttribute::len).sum::<usize>()
+                    + attributes
+                        .iter()
+                        .map(RawAttribute::len)
+                        .map(|x| x + 6)
+                        .sum::<usize>()
             }
             Self::StackMapTable { entries, .. } => {
                 2 + entries.iter().map(|entry| entry.len()).sum::<usize>()
