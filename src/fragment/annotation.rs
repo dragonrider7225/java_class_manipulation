@@ -155,7 +155,7 @@ impl AnnotationElement {
             }
             b's' => {
                 let value_idx = read_u16(src, counter)?;
-                let value = pool.get_owned_string(value_idx)?;
+                let value = pool.get_utf8(value_idx)?.to_owned();
                 Ok(Self::String(value))
             }
             b'e' => {
