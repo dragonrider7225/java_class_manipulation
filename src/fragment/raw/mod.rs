@@ -121,6 +121,15 @@ pub enum RawAttribute {
         /// The annotations.
         annotations: Vec<RawAnnotation>,
     },
+    /// The annotations on a function's parameters that are visible to the program through the
+    /// reflection API.
+    RuntimeVisibleParameterAnnotations {
+        /// The index of the attribute name "RuntimeVisibleParameterAnnotations" in the constant
+        /// pool.
+        name_idx: u16,
+        /// The annotations.
+        parameter_annotations: Vec<Vec<RawAnnotation>>,
+    },
     GenericAttribute {
         /// The index of the attribute's name in the constant pool.
         name_idx: u16,
@@ -149,6 +158,7 @@ impl RawAttribute {
             | Self::Deprecated { name_idx }
             | Self::RuntimeVisibleAnnotations { name_idx, .. }
             | Self::RuntimeInvisibleAnnotations { name_idx, .. }
+            | Self::RuntimeVisibleParameterAnnotations { name_idx, .. }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
@@ -201,6 +211,17 @@ impl RawAttribute {
             }
             Self::RuntimeInvisibleAnnotations { annotations, .. } => {
                 2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
+            }
+            Self::RuntimeVisibleParameterAnnotations {
+                parameter_annotations,
+                ..
+            } => {
+                1 + parameter_annotations
+                    .iter()
+                    .map(|annotations| {
+                        2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
+                    })
+                    .sum::<usize>()
             }
             Self::GenericAttribute { info, .. } => info.len(),
         }
@@ -294,6 +315,20 @@ impl RawAttribute {
                 annotations
                     .into_iter()
                     .try_for_each(|annotation| annotation.write(sink))?
+            }
+            Self::RuntimeVisibleParameterAnnotations {
+                parameter_annotations,
+                ..
+            } => {
+                eio::write_u8(sink, u8::try_from(parameter_annotations.len())?)?;
+                parameter_annotations
+                    .into_iter()
+                    .try_for_each(|annotations| {
+                        eio::write_u16(sink, u16::try_from(annotations.len())?)?;
+                        annotations
+                            .into_iter()
+                            .try_for_each(|annotation| annotation.write(sink))
+                    })?
             }
             Self::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
         }
