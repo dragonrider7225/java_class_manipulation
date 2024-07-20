@@ -269,7 +269,7 @@ impl RawAttribute {
             Self::SourceDebugExtension { value, .. } => {
                 let mut bytes = vec![];
                 crate::write_jvm8(&mut bytes, &value)?;
-                super::write_bytes(sink, &mut bytes[2..])?
+                eio::write_byte_slice(sink, &bytes[2..])?
             }
             Self::LineNumberTable { table, .. } => {
                 eio::write_u16(sink, u16::try_from(table.len())?)?;
