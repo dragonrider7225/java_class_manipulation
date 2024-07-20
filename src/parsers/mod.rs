@@ -3,7 +3,7 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
 };
 
-use nom::{combinator as comb, error::ParseError, Err, IResult, InputLength, Parser};
+use nom::{combinator as comb, Err, IResult, InputLength};
 
 // TODO: move other parsers into appropriate sub-package
 

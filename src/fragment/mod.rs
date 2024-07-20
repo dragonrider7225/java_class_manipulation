@@ -21,10 +21,7 @@ use std::{
 
 use crate::{
     parsers::{impl_from_str_for_nom_parse_cf, NomParse, NomParseContextFree},
-    types::{
-        field::{ClassType, JavaFieldType},
-        JavaType, PrimitiveValueType, QualifiedClassName,
-    },
+    types::{field::JavaFieldType, JavaType, PrimitiveValueType, QualifiedClassName},
     AccessFlagged, ClassParseError, CrateResult, Either, FieldRef, MethodRef,
 };
 
