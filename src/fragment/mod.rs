@@ -3789,7 +3789,8 @@ pub enum JavaAttribute {
     /// The annotations on the parameters of the function this attribute is attached to that should
     /// not be visible to the program through Java's reflection API.
     RuntimeInvisibleParameterAnnotations(Vec<Vec<Annotation>>),
-    /// An attribute that does not fall into any of the other categories.
+    /// An attribute that is not defined by [section 4.7 of the Java Virtual Machine
+    /// Specification](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7).
     GenericAttribute {
         /// The name of the attribute.
         name: String,

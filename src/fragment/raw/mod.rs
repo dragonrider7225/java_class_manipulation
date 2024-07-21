@@ -156,6 +156,8 @@ pub enum RawAttribute {
         /// The annotations.
         parameter_annotations: Vec<Vec<RawAnnotation>>,
     },
+    /// An attribute that is not defined by [section 4.7 of the Java Virtual Machine
+    /// Specification](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7).
     GenericAttribute {
         /// The index of the attribute's name in the constant pool.
         name_idx: u16,
