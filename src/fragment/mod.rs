@@ -5131,13 +5131,19 @@ pub fn read_methods(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<Vec<
 /// A fully-owned Java method object.
 #[derive(Clone, Debug)]
 pub struct JavaMethod {
+    /// The [access flags](AccessFlagged) for this method.
     access_flags: u16,
+    /// The name of this method.
     name: String,
+    /// The (type-erased) type of this method.
     r#type: JavaType,
+    /// The attributes of this method.
     attributes: Vec<JavaAttribute>,
 }
 
 impl JavaMethod {
+    /// Read a single method from the class file backing `src`. `pool` should be the constant pool
+    /// previously read from `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<JavaMethod> {
         let access_flags = eio::read_u16(src)?;
         let name = pool.get_utf8(eio::read_u16(src)?)?.to_string();

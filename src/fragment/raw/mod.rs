@@ -446,15 +446,22 @@ impl RawField {
     }
 }
 
+/// A form of [JavaMethod](super::JavaMethod) that can be written to a class file without further
+/// modifying the constant pool.
 #[derive(Debug)]
 pub struct RawMethod {
+    /// The [access flags](crate::AccessFlagged) for this method.
     pub access_flags: u16,
+    /// The index of the name of this method in the constant pool.
     pub name_idx: u16,
+    /// The index of the type of this method in the constant pool.
     pub type_idx: u16,
+    /// The attributes of this method.
     pub attributes: Vec<RawAttribute>,
 }
 
 impl RawMethod {
+    /// Write this method to the class file backing `sink`.
     pub fn write(self, sink: &mut dyn Write) -> CrateResult<()> {
         eio::write_u16(sink, self.access_flags)?;
         eio::write_u16(sink, self.name_idx)?;
