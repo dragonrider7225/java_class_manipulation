@@ -3787,6 +3787,9 @@ pub enum JavaAttribute {
     /// The annotations on the parameters of the function this attribute is attached to that should
     /// be visible to the program through Java's reflection API.
     RuntimeVisibleParameterAnnotations(Vec<Vec<Annotation>>),
+    /// The annotations on the parameters of the function this attribute is attached to that should
+    /// not be visible to the program through Java's reflection API.
+    RuntimeInvisibleParameterAnnotations(Vec<Vec<Annotation>>),
     /// An attribute that does not fall into any of the other categories.
     GenericAttribute {
         /// The name of the attribute.
@@ -3832,6 +3835,9 @@ impl JavaAttribute {
     /// The name of the RuntimeVisibleParameterAnnotations attribute.
     const RUNTIME_VISIBLE_PARAMETER_ANNOTATIONS: &'static str =
         "RuntimeVisibleParameterAnnotations";
+    /// The name of the RuntimeInvisibleParameterAnnotations attribute.
+    const RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS: &'static str =
+        "RuntimeInvisibleParameterAnnotations";
 
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
@@ -4160,8 +4166,31 @@ impl JavaAttribute {
                     parameter_annotations,
                 ))
             }
-            "RuntimeInvisibleParameterAnnotations" => {
-                unimplemented!("Attribute::RuntimeInvisibleParameterAnnotations")
+            name if name == Self::RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     num_parameters: u8,
+                //     annotations: [{
+                //         num_annotations: u16,
+                //         annotations: [Annotation; num_annotations],
+                //     }; num_parameters],
+                // }
+                let counter_base = *counter;
+                let num_parameters = read_u8(src, counter)?;
+                let parameter_annotations = (0..num_parameters)
+                    .map(|_| {
+                        let num_annotations = read_u16(src, counter)?;
+                        (0..num_annotations)
+                            .map(|_| Annotation::read(src, pool, counter))
+                            .collect::<CrateResult<Vec<_>>>()
+                    })
+                    .collect::<CrateResult<Vec<_>>>()?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::RuntimeInvisibleParameterAnnotations(
+                    parameter_annotations,
+                ))
             }
             "AnnotationDefault" => unimplemented!("Attribute::AnnotationDefault"),
             "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
@@ -4198,6 +4227,9 @@ impl JavaAttribute {
             Self::RuntimeInvisibleAnnotations(_) => Self::RUNTIME_INVISIBLE_ANNOTATIONS,
             Self::RuntimeVisibleParameterAnnotations(_) => {
                 Self::RUNTIME_VISIBLE_PARAMETER_ANNOTATIONS
+            }
+            Self::RuntimeInvisibleParameterAnnotations(_) => {
+                Self::RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS
             }
             Self::GenericAttribute { name, .. } => name.as_ref(),
         }
@@ -4401,6 +4433,23 @@ impl JavaAttribute {
                     })
                     .collect::<CrateResult<Vec<_>>>()?;
                 Ok(RawAttribute::RuntimeVisibleParameterAnnotations {
+                    name_idx,
+                    parameter_annotations,
+                })
+            }
+            Self::RuntimeInvisibleParameterAnnotations(parameter_annotations) => {
+                let name_idx =
+                    pool.add_utf8(Self::RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS.to_string())?;
+                let parameter_annotations = parameter_annotations
+                    .into_iter()
+                    .map(|annotations| {
+                        annotations
+                            .into_iter()
+                            .map(|annotation| annotation.into_raw(pool))
+                            .collect::<CrateResult<Vec<_>>>()
+                    })
+                    .collect::<CrateResult<Vec<_>>>()?;
+                Ok(RawAttribute::RuntimeInvisibleParameterAnnotations {
                     name_idx,
                     parameter_annotations,
                 })

@@ -130,6 +130,15 @@ pub enum RawAttribute {
         /// The annotations.
         parameter_annotations: Vec<Vec<RawAnnotation>>,
     },
+    /// The annotations on a function's parameters that are not visible to the program through the
+    /// reflection API.
+    RuntimeInvisibleParameterAnnotations {
+        /// The index of the attribute name "RuntimeInvisibleParameterAnnotations" in the constant
+        /// pool.
+        name_idx: u16,
+        /// The annotations.
+        parameter_annotations: Vec<Vec<RawAnnotation>>,
+    },
     GenericAttribute {
         /// The index of the attribute's name in the constant pool.
         name_idx: u16,
@@ -159,6 +168,7 @@ impl RawAttribute {
             | Self::RuntimeVisibleAnnotations { name_idx, .. }
             | Self::RuntimeInvisibleAnnotations { name_idx, .. }
             | Self::RuntimeVisibleParameterAnnotations { name_idx, .. }
+            | Self::RuntimeInvisibleParameterAnnotations { name_idx, .. }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
@@ -213,6 +223,17 @@ impl RawAttribute {
                 2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
             }
             Self::RuntimeVisibleParameterAnnotations {
+                parameter_annotations,
+                ..
+            } => {
+                1 + parameter_annotations
+                    .iter()
+                    .map(|annotations| {
+                        2 + annotations.iter().map(RawAnnotation::len).sum::<usize>()
+                    })
+                    .sum::<usize>()
+            }
+            Self::RuntimeInvisibleParameterAnnotations {
                 parameter_annotations,
                 ..
             } => {
@@ -317,6 +338,20 @@ impl RawAttribute {
                     .try_for_each(|annotation| annotation.write(sink))?
             }
             Self::RuntimeVisibleParameterAnnotations {
+                parameter_annotations,
+                ..
+            } => {
+                eio::write_u8(sink, u8::try_from(parameter_annotations.len())?)?;
+                parameter_annotations
+                    .into_iter()
+                    .try_for_each(|annotations| {
+                        eio::write_u16(sink, u16::try_from(annotations.len())?)?;
+                        annotations
+                            .into_iter()
+                            .try_for_each(|annotation| annotation.write(sink))
+                    })?
+            }
+            Self::RuntimeInvisibleParameterAnnotations {
                 parameter_annotations,
                 ..
             } => {
