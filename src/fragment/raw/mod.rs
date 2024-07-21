@@ -11,7 +11,7 @@ use super::stack_frame::{RawStackMapFrame, WritableFrame as _};
 
 /// An raw analogue to the [`crate::fragment::annotation`] module.
 pub mod annotation;
-use annotation::RawAnnotation;
+use annotation::{RawAnnotation, RawAnnotationElement};
 
 /// A form of [`JavaAttribute`](crate::fragment::JavaAttribute) that can be written to a class file
 /// without further modification of the constant pool.
@@ -156,6 +156,13 @@ pub enum RawAttribute {
         /// The annotations.
         parameter_annotations: Vec<Vec<RawAnnotation>>,
     },
+    /// The default value of an argument to an annotation.
+    AnnotationDefault {
+        /// The index of the attribute name "AnnotationDefault" in the constant pool.
+        name_idx: u16,
+        /// The default value of the annotation element that this attribute is attached to.
+        default_value: RawAnnotationElement,
+    },
     /// An attribute that is not defined by [section 4.7 of the Java Virtual Machine
     /// Specification](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7).
     GenericAttribute {
@@ -188,6 +195,7 @@ impl RawAttribute {
             | Self::RuntimeInvisibleAnnotations { name_idx, .. }
             | Self::RuntimeVisibleParameterAnnotations { name_idx, .. }
             | Self::RuntimeInvisibleParameterAnnotations { name_idx, .. }
+            | Self::AnnotationDefault { name_idx, .. }
             | Self::GenericAttribute { name_idx, .. } => name_idx,
         }
     }
@@ -263,6 +271,7 @@ impl RawAttribute {
                     })
                     .sum::<usize>()
             }
+            Self::AnnotationDefault { default_value, .. } => default_value.len(),
             Self::GenericAttribute { info, .. } => info.len(),
         }
     }
@@ -384,6 +393,7 @@ impl RawAttribute {
                             .try_for_each(|annotation| annotation.write(sink))
                     })?
             }
+            Self::AnnotationDefault { default_value, .. } => default_value.write(sink)?,
             Self::GenericAttribute { info, .. } => eio::write_byte_slice(sink, &info)?,
         }
         Ok(())

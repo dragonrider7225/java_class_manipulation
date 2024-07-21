@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub mod annotation;
-use annotation::Annotation;
+use annotation::{Annotation, AnnotationElement};
 
 pub mod constant_pool;
 pub use constant_pool::ConstantPool;
@@ -3789,6 +3789,8 @@ pub enum JavaAttribute {
     /// The annotations on the parameters of the function this attribute is attached to that should
     /// not be visible to the program through Java's reflection API.
     RuntimeInvisibleParameterAnnotations(Vec<Vec<Annotation>>),
+    /// The default value of an argument to an annotation.
+    AnnotationDefault(AnnotationElement),
     /// An attribute that is not defined by [section 4.7 of the Java Virtual Machine
     /// Specification](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7).
     GenericAttribute {
@@ -3838,6 +3840,8 @@ impl JavaAttribute {
     /// The name of the RuntimeInvisibleParameterAnnotations attribute.
     const RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS: &'static str =
         "RuntimeInvisibleParameterAnnotations";
+    /// The name of the AnnotationDefault attribute.
+    const ANNOTATION_DEFAULT: &'static str = "AnnotationDefault";
 
     /// Reads a single attribute from the byte source `src`.
     fn read(src: &mut dyn Read, pool: &ConstantPool, counter: &mut usize) -> CrateResult<Self> {
@@ -4192,7 +4196,18 @@ impl JavaAttribute {
                     parameter_annotations,
                 ))
             }
-            "AnnotationDefault" => unimplemented!("Attribute::AnnotationDefault"),
+            name if name == Self::ANNOTATION_DEFAULT => {
+                // Structure:
+                // {
+                //     name: u16, // Already read
+                //     value_length: u32, // Number of bytes in the remainder of the attribute
+                //     default_value: AnnotationElement,
+                // }
+                let counter_base = *counter;
+                let default_value = AnnotationElement::read(src, pool, counter)?;
+                debug_assert_eq!(value_length, *counter - counter_base);
+                Ok(Self::AnnotationDefault(default_value))
+            }
             "BootstrapMethods" => unimplemented!("Attribute::BootstrapMethods"),
             name => {
                 let name = name.to_string();
@@ -4231,6 +4246,7 @@ impl JavaAttribute {
             Self::RuntimeInvisibleParameterAnnotations(_) => {
                 Self::RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS
             }
+            Self::AnnotationDefault(_) => Self::ANNOTATION_DEFAULT,
             Self::GenericAttribute { name, .. } => name.as_ref(),
         }
     }
@@ -4452,6 +4468,14 @@ impl JavaAttribute {
                 Ok(RawAttribute::RuntimeInvisibleParameterAnnotations {
                     name_idx,
                     parameter_annotations,
+                })
+            }
+            Self::AnnotationDefault(default_value) => {
+                let name_idx = pool.add_utf8(Self::ANNOTATION_DEFAULT.to_string())?;
+                let default_value = default_value.into_raw(pool)?;
+                Ok(RawAttribute::AnnotationDefault {
+                    name_idx,
+                    default_value,
                 })
             }
             Self::GenericAttribute { name, info } => {
