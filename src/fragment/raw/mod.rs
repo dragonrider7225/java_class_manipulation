@@ -388,6 +388,8 @@ impl RawAttribute {
     }
 }
 
+/// A form of [`ExceptionHandler`](crate::fragment::ExceptionHandler) that can be written to a
+/// class file without further modifying the constant pool.
 #[derive(Debug)]
 pub struct RawExceptionHandler {
     /// The index in the associated "Code" attribute's code array at which this exception handler
@@ -406,6 +408,7 @@ pub struct RawExceptionHandler {
 }
 
 impl RawExceptionHandler {
+    /// Write the exception handler to the class file backing `sink`.
     pub fn write(self, sink: &mut dyn Write) -> io::Result<()> {
         eio::write_u16(sink, self.start_pc)?;
         eio::write_u16(sink, self.end_pc)?;
