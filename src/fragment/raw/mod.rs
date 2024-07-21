@@ -1,4 +1,3 @@
-use annotation::RawAnnotation;
 use extended_io as eio;
 
 use std::{
@@ -10,24 +9,42 @@ use crate::CrateResult;
 
 use super::stack_frame::{RawStackMapFrame, WritableFrame as _};
 
+/// An raw analogue to the [`crate::fragment::annotation`] module.
 pub mod annotation;
+use annotation::RawAnnotation;
 
+/// A form of [`JavaAttribute`](crate::fragment::JavaAttribute) that can be written to a class file
+/// without further modification of the constant pool.
 #[derive(Debug)]
 pub enum RawAttribute {
+    /// A constant value of type `int`, `long`, `float`, `double`, or `java.lang.String`.
     ConstantValue {
+        /// The index of the attribute name "ConstantValue" in the constant pool.
         name_idx: u16,
+        /// The index of the constant value in the constant pool.
         value_idx: u16,
     },
+    /// A method body.
     Code {
+        /// The index of the attribute name "Code" in the constant pool.
         name_idx: u16,
+        /// The maximum number of (4-byte) values on the argument stack of this function at any one
+        /// time. A value of type `long` or `double` counts as two values.
         max_stack: u16,
+        /// The maximum number of local variables in use by this function at any one time.
         max_locals: u16,
+        /// The actual code of the method.
         body: Vec<u8>,
+        /// The exception handlers for the method.
         exception_handlers: Vec<RawExceptionHandler>,
+        /// The attributes of the method body.
         attributes: Vec<RawAttribute>,
     },
+    /// A stack map table is used for type checking.
     StackMapTable {
+        /// The index of the attribute name "StackMapTable" in the constant pool.
         name_idx: u16,
+        /// The entries in the stack map table.
         entries: Vec<RawStackMapFrame>,
     },
     /// The list of exceptions that explicitly may be thrown by the function.
