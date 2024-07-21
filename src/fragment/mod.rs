@@ -4946,13 +4946,19 @@ impl_from_str_for_nom_parse_cf!(PackageName);
 /// A fully-owned Java field object.
 #[derive(Clone, Debug)]
 pub struct JavaField {
+    /// The [access flags](AccessFlagged) for this field.
     access_flags: u16,
+    /// The name of this field.
     name: String,
+    /// The (type-erased) type of this field.
     r#type: JavaType,
+    /// The attributes of this field.
     attributes: Vec<JavaAttribute>,
 }
 
 impl JavaField {
+    /// Read a single field from the class file backing `src`. `pool` should be the constant pool
+    /// that was previously read from the class file.
     fn read(src: &mut dyn Read, pool: &ConstantPool) -> CrateResult<JavaField> {
         let access_flags = eio::read_u16(src)?;
 

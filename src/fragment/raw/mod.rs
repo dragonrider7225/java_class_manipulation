@@ -418,15 +418,22 @@ impl RawExceptionHandler {
     }
 }
 
+/// A form of [JavaField](super::JavaField) that can be written to a class file without further
+/// modifying the constant pool.
 #[derive(Debug)]
 pub struct RawField {
+    /// The [access flags](crate::AccessFlagged) for this field.
     pub access_flags: u16,
+    /// The index of the name of this field in the constant pool.
     pub name_idx: u16,
+    /// The index of the type of this field in the constant pool.
     pub type_idx: u16,
+    /// The attributes of this field.
     pub attributes: Vec<RawAttribute>,
 }
 
 impl RawField {
+    /// Write this field to the class file backing `sink`.
     pub fn write(self, sink: &mut dyn Write) -> CrateResult<()> {
         eio::write_u16(sink, self.access_flags)?;
         eio::write_u16(sink, self.name_idx)?;
