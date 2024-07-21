@@ -4145,7 +4145,7 @@ impl JavaAttribute {
                 // {
                 //     name: u16, // Already read
                 //     value_length: u32, // Number of bytes in the remainder of the attribute
-                //     num_parameters: u16,
+                //     num_parameters: u8,
                 //     annotations: [{
                 //         num_annotations: u16,
                 //         annotations: [Annotation; num_annotations],
