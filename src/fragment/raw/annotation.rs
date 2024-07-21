@@ -2,11 +2,10 @@ use std::{collections::HashMap, io::Write};
 
 use extended_io as eio;
 
-#[cfg(doc)]
-use crate::fragment::{annotation::Annotation, ConstantPool};
 use crate::CrateResult;
 
-/// A version of [`Annotation`] that indexes into some [`ConstantPool`] as specified by [the
+/// A version of [`Annotation`](crate::fragment::annotation::Annotation) that indexes into some
+/// [`ConstantPool`](crate::fragment::ConstantPool) as specified by [the
 /// JVMS](https://docs.oracle.com/javase/specs/jvms/se7/html/index.html).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawAnnotation {
@@ -18,7 +17,7 @@ pub struct RawAnnotation {
 }
 
 impl RawAnnotation {
-    /// The number of bytes that will be written by [`write()`].
+    /// The number of bytes that will be written by [`write()`](#method.write).
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         2 + 2
@@ -71,7 +70,7 @@ pub enum RawAnnotationElement {
 }
 
 impl RawAnnotationElement {
-    /// The number of bytes that will be written by [`write()`].
+    /// The number of bytes that will be written by [`write()`](#method.write).
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         1 + match self {

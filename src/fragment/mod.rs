@@ -3724,11 +3724,10 @@ pub enum JavaAttribute {
     ConstantString(String),
     /// A method body.
     Code {
-        /// The maximum number of (4-byte) values on the argument stack of this
-        /// function at any one time.
+        /// The maximum number of (4-byte) values on the argument stack of this function at any one
+        /// time.
         max_stack: u16,
-        /// The maximum number of local variables in use by this function at any
-        /// one time.
+        /// The maximum number of local variables in use by this function at any one time.
         max_locals: u16,
         /// The actual code of the method.
         body: JavaFunctionBody,
